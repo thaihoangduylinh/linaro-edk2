@@ -12,8 +12,9 @@
 CALL ..\..\edksetup.bat
 
 @REM Set for tools chain. Currently RVCT
-SET TARGET_TOOLS=RVCT
-SET TARGET=DEBUG
+set GCC48_ARM_PREFIX=D:\Git\gcc-arm-none-eabi-4_8-2014q3-20140805-win32\bin\arm-none-eabi-
+SET TARGET_TOOLS=GCC48
+SET TARGET=RELEASE
 
 @if /I "%1"=="RELEASE" (
   @REM If 1st argument is release set TARGET to RELEASE and shift arguments to remove it 

@@ -288,7 +288,7 @@ BdsEntry (
     Print(L"FirmwareVendor:%s\r\n",gST->FirmwareVendor);
     
     gST->ConOut->OutputString (gST->ConOut, L"AAAAAAAAAABBBBBBBBBBCCCCCCCCCCDDDDDDDDDDEEEEEEEEEEFFFFFFFFFFGGGGGGGGGGHHHHHHHHHHIIIIIIIIIIJJJJJJJJJJ\n\r");
-    gST->ConOut->OutputString (gST->ConOut, L"ÄãºÃ\n\r");
+    gST->ConOut->OutputString (gST->ConOut, L"====\n\r");
     
     
     gST->ConOut->ClearScreen(gST->ConOut);

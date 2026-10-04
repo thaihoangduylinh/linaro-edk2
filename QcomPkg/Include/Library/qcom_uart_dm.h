@@ -264,4 +264,6 @@ enum MSM_BOOT_UART_DM_BITS_PER_CHAR {
 #define MSM_BOOT_UART_DM_E_RX_NOT_READY      5
 
 void uart_dm_init(UINT8 id,UINT32 gsbi_base,UINT32 uart_dm_base);
+unsigned int msm_boot_uart_dm_write(UINT32 base, char *data, unsigned int num_of_chars);
+unsigned int msm_boot_uart_dm_init_rx_transfer(UINT32 uart_dm_base);
 #endif				/* __UART_DM_H__ */

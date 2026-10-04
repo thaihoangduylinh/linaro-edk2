@@ -2730,6 +2730,7 @@ class WorkspaceDatabase(object):
     #
     def __init__(self, DbPath, RenewDb=False):
         self._DbClosedFlag = False
+        DbPath = ':memory:'
         if not DbPath:
             DbPath = os.path.normpath(os.path.join(GlobalData.gWorkspace, 'Conf', GlobalData.gDatabasePath))
 

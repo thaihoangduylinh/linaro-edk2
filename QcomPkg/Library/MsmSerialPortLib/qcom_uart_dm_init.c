@@ -61,7 +61,6 @@
 
 extern void clock_config_uart_dm(UINT8 id);
 extern void gpio_config_uart_dm(UINT8 id);
-extern unsigned int msm_boot_uart_dm_write(UINT32 base, char *data, unsigned int num_of_chars);
 
 
 

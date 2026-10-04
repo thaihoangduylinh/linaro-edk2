@@ -222,7 +222,7 @@ void clock_config_mmc(UINT32 interface, UINT32 freq)
 {
 	char sdc_clk[64];
 	unsigned rate;
-	UINT32 reg = 0;
+	//UINT32 reg = 0;
 
 	AsciiSPrint(sdc_clk, sizeof(sdc_clk), "sdc%d_clk", interface);
 

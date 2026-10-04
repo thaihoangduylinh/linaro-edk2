@@ -176,6 +176,8 @@
   XCODE:*_*_ARM_PLATFORM_FLAGS == -arch armv7
 
   GCC:*_*_ARM_PLATFORM_FLAGS == -march=armv7-a
+  
+  GCC:*_*_*_CC_FLAGS = -Wno-error -Wno-unused-variable -Wno-unused-but-set-variable -Wno-unused-parameter -Wno-shift-count-overflow
 
   RVCT:*_*_ARM_PLATFORM_FLAGS == --cpu Cortex-A8
 

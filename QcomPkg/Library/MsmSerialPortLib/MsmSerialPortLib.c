@@ -52,7 +52,7 @@ SerialPortWrite (
 	//	uart_putc(0,*Buffer);
 	//}
 	UINT32 uart_base = FixedPcdGet32(PcdQcomDebugUartDmBaseAddress);
-	return msm_boot_uart_dm_write(uart_base,(INT8 *)Buffer,NumberOfBytes) == MSM_BOOT_UART_DM_E_SUCCESS?NumberOfBytes:0;
+	return msm_boot_uart_dm_write(uart_base,(char *)Buffer,NumberOfBytes) == MSM_BOOT_UART_DM_E_SUCCESS?NumberOfBytes:0;
 }
 
 
@@ -111,9 +111,9 @@ SerialPortPoll (
 	
 	if(!(readl(MSM_BOOT_UART_DM_SR(uart_base)) & MSM_BOOT_UART_DM_SR_RXRDY))
 	{
-		return EFI_NOT_READY;
+		return FALSE;
 	}
 	
-	return EFI_SUCCESS;
+	return TRUE;
 }
 

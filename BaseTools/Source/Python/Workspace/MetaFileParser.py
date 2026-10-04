@@ -1237,8 +1237,10 @@ class DscParser(MetaFileParser):
         self._ContentIndex = 0
         self._InSubsection = False
         while self._ContentIndex < len(self._Content) :
+            Item = self._Content[self._ContentIndex]
+            Item = list(Item) + [None] * (14 - len(Item)) if len(Item) < 14 else Item[:14]
             Id, self._ItemType, V1, V2, V3, S1, S2, Owner, self._From, \
-                LineStart, ColStart, LineEnd, ColEnd, Enabled = self._Content[self._ContentIndex]
+                LineStart, ColStart, LineEnd, ColEnd, Enabled = Item
 
             if self._From < 0:
                 self._FileWithError = self.MetaFile
