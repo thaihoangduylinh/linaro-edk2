@@ -587,6 +587,13 @@ UefiMain (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
   if (Info->FreeSpace < SPACE_RESERVE || Total > Info->FreeSpace - SPACE_RESERVE) {
     Log ("Insufficient USB space: dump=%Ld free=%Ld reserve=%d\r\n",
          Total, Info->FreeSpace, SPACE_RESERVE);
+		 
+	Log ("USB SPACE INSUFFICIENT\r\n");
+	Log ("Dump size : %Ld bytes\r\n", Total);
+	Log ("USB free  : %Ld bytes\r\n", Info->FreeSpace);
+	Log ("Required  : %Ld bytes\r\n", Total + SPACE_RESERVE);
+	Log ("Missing   : %Ld bytes\r\n", Total + SPACE_RESERVE - Info->FreeSpace);
+	Log ("Use a larger USB drive, preferably 32 GB.\r\n");
     Status = EFI_VOLUME_FULL;
     goto Exit;
   }
