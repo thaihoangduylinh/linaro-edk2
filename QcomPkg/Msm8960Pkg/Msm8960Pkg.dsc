@@ -144,6 +144,8 @@
   
 
 [LibraryClasses.common.UEFI_APPLICATION]
+  UefiApplicationEntryPoint        |    MdePkg/Library/UefiApplicationEntryPoint/UefiApplicationEntryPoint.inf
+  MemoryAllocationLib              |    MdePkg/Library/UefiMemoryAllocationLib/UefiMemoryAllocationLib.inf
 
 [LibraryClasses.common.UEFI_DRIVER]
   ReportStatusCodeLib              |    IntelFrameworkModulePkg/Library/DxeReportStatusCodeLibFramework/DxeReportStatusCodeLib.inf
@@ -340,6 +342,14 @@
 #
 ################################################################################
 [Components.common]
+
+  # Standalone USB eMMC dump application (not packed into the firmware FD).
+  QcomPkg/Msm8960Pkg/Applications/EmmcDump/EmmcDump.inf {
+    <LibraryClasses>
+      DebugLib|MdePkg/Library/BaseDebugLibNull/BaseDebugLibNull.inf
+    <BuildOptions>
+      GCC:*_*_ARM_CC_FLAGS = -Werror
+  }
 
   #
   # SEC (SEC)

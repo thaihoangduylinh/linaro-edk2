@@ -1,0 +1,36 @@
+## @file
+# Read the complete exposed internal disk to files on a USB filesystem.
+##
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = EmmcDump
+  FILE_GUID                      = 6D7AFB16-EF71-4A97-B8E1-A05438A29180
+  MODULE_TYPE                    = UEFI_APPLICATION
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = UefiMain
+
+[Sources]
+  EmmcDump.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+
+[LibraryClasses]
+  UefiApplicationEntryPoint
+  UefiLib
+  UefiBootServicesTableLib
+  MemoryAllocationLib
+  BaseLib
+  BaseMemoryLib
+  DevicePathLib
+  PrintLib
+
+[Protocols]
+  gEfiBlockIoProtocolGuid
+  gEfiSimpleFileSystemProtocolGuid
+  gEfiLoadedImageProtocolGuid
+  gEfiDevicePathProtocolGuid
+
+[Guids]
+  gEfiFileSystemInfoGuid
+
