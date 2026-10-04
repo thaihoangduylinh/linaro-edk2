@@ -3,8 +3,8 @@
 
   Source access is exclusively ReadBlocks. No source writes, partition changes,
   resets or vendor commands are issued. Device discovery is deliberately strict:
-  a unique non-removable, non-partition, non-USB disk is required. This is a
-  candidate for the eMMC user area, not proof of the physical storage type.
+  a unique known eMMC User device path is preferred over boot-area handles.
+  Otherwise a unique non-removable, non-partition, non-USB candidate is required.
 **/
 
 #include <Uefi.h>
@@ -19,6 +19,7 @@
 #include <Library/PrintLib.h>
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/UefiLib.h>
+#include "Screen.h"
 
 #define DUMP_BUFFER_SIZE  (4U * 1024U * 1024U)
 #define DUMP_PART_SIZE    (1024U * 1024U * 1024U)
@@ -62,9 +63,7 @@ Log (CONST CHAR8 *Format, ...)
   VA_START (Args, Format);
   Length = AsciiVSPrint (Text, sizeof (Text), Format, Args);
   VA_END (Args);
-  if (gST->ConOut != NULL) {
-    Print (L"%a", Text);
-  }
+  ScreenWrite (Text);
   if (mLog == NULL) {
     return EFI_SUCCESS;
   }
@@ -188,7 +187,7 @@ FindDestination (EFI_HANDLE Image, EFI_HANDLE *Destination, EFI_FILE_PROTOCOL **
   }
   FreePool (Handles);
   if (Matches != 1) {
-    Log ("USB filesystem candidates=%u; expected exactly one (or image's USB volume).\r\n",
+    Log ("USB filesystem candidates=%d; expected exactly one (or image's USB volume).\r\n",
          Matches);
     return EFI_NOT_FOUND;
   }
@@ -197,6 +196,34 @@ FindDestination (EFI_HANDLE Image, EFI_HANDLE *Destination, EFI_FILE_PROTOCOL **
     return Status;
   }
   return Fs->OpenVolume (Fs, Root);
+}
+
+// Vendor paths used by the phone firmware. The User GUID also appears in
+// QcomPkg/Msm8960Pkg/Dxe/MMCHSDxe/MMCHS.c. Match a complete single-node path;
+// a partition or descendant of the user-area handle is not the raw device.
+// See https://github.com/MobileTooling/img2ffu#samples for the phone path map.
+STATIC UINTN
+EmmcArea (EFI_DEVICE_PATH_PROTOCOL *Path)
+{
+  STATIC CONST EFI_GUID Areas[] = {
+    {0xb615f1f5, 0x5088, 0x43cd, {0x80,0x9c,0xa1,0x6e,0x52,0x48,0x7d,0x00}},
+    {0x12c55b20, 0x25d3, 0x41c9, {0x8e,0x06,0x28,0x2d,0x94,0xc6,0x76,0xad}},
+    {0x6b76a6db, 0x0257, 0x48a9, {0xaa,0x99,0xf6,0xb1,0x65,0x5f,0x7b,0x00}},
+    {0xc49551ea, 0xd6bc, 0x4966, {0x94,0x99,0x87,0x1e,0x39,0x31,0x33,0xcd}}
+  };
+  UINTN Index;
+
+  if (DevicePathType (Path) == HARDWARE_DEVICE_PATH &&
+      DevicePathSubType (Path) == HW_VENDOR_DP &&
+      DevicePathNodeLength (Path) == sizeof (VENDOR_DEVICE_PATH) &&
+      IsDevicePathEnd (NextDevicePathNode (Path))) {
+    for (Index = 0; Index < sizeof (Areas) / sizeof (Areas[0]); Index++) {
+      if (CompareMem (&((VENDOR_DEVICE_PATH *)Path)->Guid, &Areas[Index], sizeof (EFI_GUID)) == 0) {
+        return Index + 1; // User=1, Boot1=2, Boot2=3, RPMB=4
+      }
+    }
+  }
+  return 0;
 }
 
 STATIC EFI_STATUS
@@ -210,11 +237,18 @@ FindSource (EFI_HANDLE Destination, EFI_BLOCK_IO_PROTOCOL **Source, EFI_HANDLE *
   UINTN Count;
   UINTN Index;
   UINTN Matches;
+  UINTN UserMatches;
+  UINTN Area;
+  EFI_BLOCK_IO_PROTOCOL *UserIo;
+  EFI_HANDLE UserHandle;
 
   *Source = NULL;
   *SourceHandle = NULL;
   DestPath = DevicePathFromHandle (Destination);
   Matches = 0;
+  UserMatches = 0;
+  UserIo = NULL;
+  UserHandle = NULL;
   Status = gBS->LocateHandleBuffer (ByProtocol, &gEfiBlockIoProtocolGuid,
                                    NULL, &Count, &Handles);
   if (EFI_ERROR (Status)) {
@@ -232,11 +266,12 @@ FindSource (EFI_HANDLE Destination, EFI_BLOCK_IO_PROTOCOL **Source, EFI_HANDLE *
         PathPrefix (Path, DestPath) || PathPrefix (DestPath, Path)) {
       continue;
     }
-    Matches++;
-    *Source = Io;
-    *SourceHandle = Handles[Index];
-    Status = Log ("candidate=%u block_size=%u last_lba=%Lu\r\n",
-                  Matches, Io->Media->BlockSize, Io->Media->LastBlock);
+    Area = EmmcArea (Path);
+    Status = Log ("device_index=%d area=%a block_size=%d last_lba=%Ld media_id=%08x\r\n",
+                  (UINT32)Index,
+                  Area == 1 ? "User" : Area == 2 ? "Boot1" : Area == 3 ? "Boot2" :
+                  Area == 4 ? "RPMB" : "Unknown",
+                  Io->Media->BlockSize, Io->Media->LastBlock, Io->Media->MediaId);
     if (!EFI_ERROR (Status)) {
       Status = LogPath ("candidate_path", Path);
     }
@@ -244,10 +279,26 @@ FindSource (EFI_HANDLE Destination, EFI_BLOCK_IO_PROTOCOL **Source, EFI_HANDLE *
       FreePool (Handles);
       return Status;
     }
+    if (Area >= 2) {
+      continue; // Do not mistake a boot area or RPMB for the user-area disk.
+    }
+    Matches++;
+    *Source = Io;
+    *SourceHandle = Handles[Index];
+    if (Area == 1) {
+      UserMatches++;
+      UserIo = Io;
+      UserHandle = Handles[Index];
+    }
   }
   FreePool (Handles);
+  if (UserMatches == 1) {
+    *Source = UserIo;
+    *SourceHandle = UserHandle;
+    return Log ("selection=known_eMMC_User_GUID (Boot1/Boot2/RPMB excluded)\r\n");
+  }
   if (Matches != 1) {
-    Log ("Source candidates=%u; cannot identify a unique raw internal disk.\r\n", Matches);
+    Log ("Source candidates=%d; cannot identify a unique raw internal disk.\r\n", Matches);
     *Source = NULL;
     return EFI_NOT_FOUND;
   }
@@ -263,7 +314,7 @@ NewDirectory (EFI_FILE_PROTOCOL *Root, EFI_FILE_PROTOCOL **Directory)
   UINTN Index;
 
   for (Index = 0; Index < 10000; Index++) {
-    UnicodeSPrint (Name, sizeof (Name), L"EmmcDump-%04u", Index);
+    UnicodeSPrint (Name, sizeof (Name), L"EmmcDump-%04d", Index);
     Status = Root->Open (Root, &Existing, Name, EFI_FILE_MODE_READ, 0);
     if (!EFI_ERROR (Status)) {
       Existing->Close (Existing);
@@ -384,7 +435,7 @@ DumpDisk (EFI_BLOCK_IO_PROTOCOL *Io, EFI_FILE_PROTOCOL *Directory, UINT64 Total)
   InitCrc ();
   Status = EFI_SUCCESS;
   while (Done < Total) {
-    UnicodeSPrint (Name, sizeof (Name), L"emmc-%04u.bin", Part);
+    UnicodeSPrint (Name, sizeof (Name), L"emmc-%04d.bin", Part);
     Status = Directory->Open (Directory, &File, Name, FILE_CREATE, 0);
     if (EFI_ERROR (Status)) {
       goto Exit;
@@ -420,9 +471,7 @@ DumpDisk (EFI_BLOCK_IO_PROTOCOL *Io, EFI_FILE_PROTOCOL *Directory, UINT64 Total)
       PartBytes += Chunk;
       Lba += Chunk / Media.BlockSize;
       if (Done >= NextProgress || Done == Total) {
-        if (gST->ConOut != NULL) {
-          Print (L"\rCopied %Lu / %Lu MiB", RShiftU64 (Done, 20), RShiftU64 (Total, 20));
-        }
+        ScreenProgress (Done, Total);
         NextProgress = Done + 64U * 1024U * 1024U;
       }
     }
@@ -435,7 +484,7 @@ DumpDisk (EFI_BLOCK_IO_PROTOCOL *Io, EFI_FILE_PROTOCOL *Directory, UINT64 Total)
     if (EFI_ERROR (Status)) {
       goto Exit;
     }
-    Status = Log ("\r\npart=emmc-%04u.bin bytes=%u crc32=%08x\r\n",
+    Status = Log ("\r\npart=emmc-%04d.bin bytes=%d crc32=%08x\r\n",
                   Part, PartBytes, Crc ^ 0xFFFFFFFFU);
     if (EFI_ERROR (Status)) {
       goto Exit;
@@ -444,7 +493,7 @@ DumpDisk (EFI_BLOCK_IO_PROTOCOL *Io, EFI_FILE_PROTOCOL *Directory, UINT64 Total)
   }
   Status = Directory->Flush (Directory);
   if (!EFI_ERROR (Status)) {
-    Status = Log ("COMPLETE bytes=%Lu parts=%u\r\n", Done, Part);
+    Status = Log ("COMPLETE bytes=%Ld parts=%d\r\n", Done, Part);
   }
 
 Exit:
@@ -453,7 +502,7 @@ Exit:
     File->Close (File);
   }
   if (EFI_ERROR (Status)) {
-    Log ("\r\nINCOMPLETE status=%r next_lba=%Lu bytes_in_full_chunks=%Lu\r\n",
+    Log ("\r\nINCOMPLETE status=%r next_lba=%Ld bytes_in_full_chunks=%Ld\r\n",
          Status, Lba, Done);
   }
   FreeAlignedPages (Buffer, Pages);
@@ -473,13 +522,15 @@ UefiMain (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
   EFI_FILE_SYSTEM_INFO *Info;
   UINT64 Total;
   UINT64 Blocks;
+  CHAR8 Display[192];
 
   Root = NULL;
   Directory = NULL;
   Info = NULL;
   mLog = NULL;
   (VOID)SystemTable;
-  Log ("EmmcDump 1.0: raw internal disk -> USB. ESC cancels.\r\n");
+  ScreenInit ();
+  Log ("EmmcDump 1.1: raw internal disk -> USB. ESC cancels.\r\n");
   // Long synchronous disk transfers must not trigger the boot watchdog.
   Status = gBS->SetWatchdogTimer (0, 0, 0, NULL);
   if (EFI_ERROR (Status)) {
@@ -509,6 +560,10 @@ UefiMain (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
   }
   Status = Log ("EmmcDump format=1\r\nScope=raw BlockIO device; boot0/boot1/RPMB not included unless exposed separately.\r\n");
   if (!EFI_ERROR (Status)) {
+    ScreenDescription (Display, sizeof (Display));
+    Status = Log ("%a\r\n", Display);
+  }
+  if (!EFI_ERROR (Status)) {
     Status = LogPath ("destination_path", DevicePathFromHandle (Destination));
   }
   if (EFI_ERROR (Status)) {
@@ -530,14 +585,14 @@ UefiMain (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
   Total = MultU64x32 (Blocks, Source->Media->BlockSize);
   // Includes slack for directory entries, manifest and filesystem allocation.
   if (Info->FreeSpace < SPACE_RESERVE || Total > Info->FreeSpace - SPACE_RESERVE) {
-    Log ("Insufficient USB space: dump=%Lu free=%Lu reserve=%u\r\n",
+    Log ("Insufficient USB space: dump=%Ld free=%Ld reserve=%d\r\n",
          Total, Info->FreeSpace, SPACE_RESERVE);
     Status = EFI_VOLUME_FULL;
     goto Exit;
   }
   Status = LogPath ("source_path", DevicePathFromHandle (SourceHandle));
   if (!EFI_ERROR (Status)) {
-    Status = Log ("total_bytes=%Lu block_size=%u last_lba=%Lu\r\n",
+    Status = Log ("total_bytes=%Ld block_size=%d last_lba=%Ld\r\n",
                   Total, Source->Media->BlockSize, Source->Media->LastBlock);
   }
   if (!EFI_ERROR (Status)) {
@@ -545,6 +600,8 @@ UefiMain (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
   }
 
 Exit:
+  ScreenDescription (Display, sizeof (Display));
+  Log ("%a\r\n", Display);
   if (EFI_ERROR (Status)) {
     Log ("FAILED status=%r; partial files must not be treated as a full dump.\r\n", Status);
   }
@@ -569,6 +626,7 @@ Exit:
   }
   Log ("EmmcDump finished: %r\r\n", Status);
   // Phone loaders may have no keyboard; never block indefinitely waiting for one.
-  gBS->Stall (10 * 1000 * 1000);
+  gBS->Stall (30 * 1000 * 1000);
+  ScreenRelease ();
   return Status;
 }
