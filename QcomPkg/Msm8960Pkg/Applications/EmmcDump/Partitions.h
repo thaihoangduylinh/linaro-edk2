@@ -13,6 +13,7 @@ typedef struct {
   UINTN Matches;
 } DUMP_PARTITION;
 typedef struct {
+  BOOLEAN IsGpt;
   UINTN Count;
   UINT64 Total;
   UINT32 MediaId;
@@ -24,4 +25,5 @@ typedef struct {
 typedef EFI_STATUS (*DUMP_LOG) (CONST CHAR8 *Format, ...);
 EFI_STATUS LoadPartitionPlan (EFI_FILE_PROTOCOL *Root, EFI_BLOCK_IO_PROTOCOL *Io,
                               PARTITION_PLAN **Plan, DUMP_LOG Log);
+EFI_STATUS LoadGptPlan (EFI_BLOCK_IO_PROTOCOL *Io, PARTITION_PLAN **Plan, DUMP_LOG Log);
 #endif

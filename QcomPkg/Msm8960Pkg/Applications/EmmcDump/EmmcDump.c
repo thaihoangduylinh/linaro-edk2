@@ -555,9 +555,10 @@ DumpPartitions (EFI_BLOCK_IO_PROTOCOL *Io, EFI_FILE_PROTOCOL *Directory, PARTITI
       return Status;
     }
     mLog = PartLog;
-    Status = Log ("EmmcDump format=1\r\nScope=single GPT partition (not a full disk image)\r\n"
+    Status = Log ("EmmcDump format=1\r\nScope=%a\r\n"
                   "partition_name=%s source_start_lba=%Ld source_end_lba=%Ld\r\n"
                   "total_bytes=%Ld block_size=%d last_lba=%Ld\r\n",
+                  Plan->IsGpt ? "GPT metadata region (not a partition or full disk image)" : "single GPT partition (not a full disk image)",
                   Plan->Part[Index].Name, Plan->Part[Index].Start, Plan->Part[Index].End,
                   Plan->Part[Index].Bytes, Plan->BlockSize,
                   Plan->Part[Index].End - Plan->Part[Index].Start);
@@ -577,8 +578,8 @@ DumpPartitions (EFI_BLOCK_IO_PROTOCOL *Io, EFI_FILE_PROTOCOL *Directory, PARTITI
   return Log ("PARTITION_SET_COMPLETE bytes=%Ld partitions=%d\r\n", Plan->Total, (UINT32)Plan->Count);
 }
 
-EFI_STATUS EFIAPI
-UefiMain (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
+STATIC EFI_STATUS
+RunDump (EFI_HANDLE ImageHandle, UINTN Mode)
 {
   EFI_STATUS Status;
   EFI_STATUS CloseStatus;
@@ -591,7 +592,6 @@ UefiMain (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
   UINT64 Total;
   UINT64 Blocks;
   CHAR8 Display[192];
-  UINTN Mode;
   PARTITION_PLAN *Plan;
 
   Root = NULL;
@@ -599,15 +599,6 @@ UefiMain (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
   Info = NULL;
   mLog = NULL;
   Plan = NULL;
-  (VOID)SystemTable;
-  ScreenInit ();
-  Log ("EmmcDump 1.2: raw internal disk -> USB. ESC cancels a running dump.\r\n");
-  // Long synchronous disk transfers must not trigger the boot watchdog.
-  Status = gBS->SetWatchdogTimer (0, 0, 0, NULL);
-  if (EFI_ERROR (Status)) {
-    Log ("Cannot disable watchdog: %r\r\n", Status);
-    goto Exit;
-  }
   Status = FindDestination (ImageHandle, &Destination, &Root);
   if (EFI_ERROR (Status)) {
     Log ("No unambiguous USB filesystem: %r\r\n", Status);
@@ -640,9 +631,7 @@ UefiMain (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
   if (EFI_ERROR (Status)) {
     goto Exit;
   }
-  Status = ChooseDumpMode (Root, &Mode);
-  if (EFI_ERROR (Status)) { goto Exit; }
-  Status = Log ("mode=%a\r\n", Mode == 0 ? "full" : "partitions");
+  Status = Log ("mode=%a\r\n", Mode == 0 ? "full" : (Mode == 1 ? "partitions" : "gpt"));
   if (EFI_ERROR (Status)) { goto Exit; }
   Status = FindSource (Destination, &Source, &SourceHandle);
   if (EFI_ERROR (Status)) {
@@ -658,8 +647,8 @@ UefiMain (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
     goto Exit;
   }
   Total = MultU64x32 (Blocks, Source->Media->BlockSize);
-  if (Mode == 1) {
-    Status = LoadPartitionPlan (Root, Source, &Plan, Log);
+  if (Mode != 0) {
+    Status = Mode == 1 ? LoadPartitionPlan (Root, Source, &Plan, Log) : LoadGptPlan (Source, &Plan, Log);
     if (EFI_ERROR (Status)) { goto Exit; }
     Total = Plan->Total;
   }
@@ -723,8 +712,38 @@ Exit:
   }
   if (Plan != NULL) { FreePool (Plan); }
   Log ("EmmcDump finished: %r\r\n", Status);
-  // Phone loaders may have no keyboard; never block indefinitely waiting for one.
-  gBS->Stall (30 * 1000 * 1000);
+  return Status;
+}
+
+EFI_STATUS EFIAPI
+UefiMain (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
+{
+  EFI_STATUS Status;
+  EFI_HANDLE Destination;
+  EFI_FILE_PROTOCOL *Root;
+  UINTN Mode;
+
+  (VOID)SystemTable;
+  Root = NULL;
+  ScreenInit ();
+  // Disable the watchdog for transfers and indefinite waits at the menu.
+  Status = gBS->SetWatchdogTimer (0, 0, 0, NULL);
+  if (EFI_ERROR (Status)) { goto Exit; }
+  Status = FindDestination (ImageHandle, &Destination, &Root);
+  if (EFI_ERROR (Status)) { goto Exit; }
+  for (;;) {
+    Status = ChooseDumpMode (Root, &Mode);
+    if (Root != NULL) { Root->Close (Root); Root = NULL; }
+    if (EFI_ERROR (Status)) { goto Exit; }
+    // Reopen the USB and source each time; a failed job must not end the menu.
+    RunDump (ImageHandle, Mode);
+    ScreenWrite ("\r\nReturning to menu in 5 seconds...\r\n");
+    gBS->Stall (5000000);
+  }
+Exit:
+  if (Root != NULL) { Root->Close (Root); }
+  Log ("Cannot start/continue menu: %r\r\n", Status);
+  gBS->Stall (5000000);
   ScreenRelease ();
   return Status;
 }

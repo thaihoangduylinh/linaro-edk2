@@ -19,6 +19,8 @@ typedef struct {
 } KEY_MAP;
 STATIC INPUT_SOURCE mInputs[MAX_INPUTS];
 STATIC UINTN mInputCount;
+STATIC KEY_MAP mCachedMap;
+STATIC BOOLEAN mHaveMap;
 
 STATIC BOOLEAN
 SameKey (CONST EFI_INPUT_KEY *A, CONST EFI_INPUT_KEY *B)
@@ -199,9 +201,10 @@ STATIC VOID
 DrawMenu (UINTN Selected)
 {
   ScreenClear ();
-  ScreenWrite ("EMMCDUMP 1.2\r\n\r\n");
+  ScreenWrite ("EMMCDUMP 1.3\r\n\r\n");
   ScreenWrite (Selected == 0 ? "> 1. FULL DUMP (1 GIB PARTS)\r\n" : "  1. FULL DUMP (1 GIB PARTS)\r\n");
   ScreenWrite (Selected == 1 ? "> 2. PARTITIONS FROM PARTITION.TXT\r\n" : "  2. PARTITIONS FROM PARTITION.TXT\r\n");
+  ScreenWrite (Selected == 2 ? "> 3. GPT (PRIMARY + BACKUP)\r\n" : "  3. GPT (PRIMARY + BACKUP)\r\n");
   ScreenWrite ("\r\nVOLUME UP: UP\r\nVOLUME DOWN: DOWN\r\nPOWER: SELECT\r\n\r\nRelease each button after pressing.\r\n");
 }
 
@@ -223,7 +226,13 @@ ChooseDumpMode (EFI_FILE_PROTOCOL *Root, UINTN *Mode)
     return EFI_UNSUPPORTED;
   }
   DrainInput ();
-  Status = LoadMap (Root, &Map);
+  if (mHaveMap) {
+    Map = mCachedMap;
+    Status = EFI_SUCCESS;
+  } else {
+    if (Root == NULL) { return EFI_NOT_FOUND; }
+    Status = LoadMap (Root, &Map);
+  }
   if (EFI_ERROR (Status)) {
     ZeroMem (&Map, sizeof (Map));
     Map.Magic = KEY_MAGIC;
@@ -258,6 +267,8 @@ ChooseDumpMode (EFI_FILE_PROTOCOL *Root, UINTN *Mode)
       gBS->Stall (2000000);
     }
   }
+  mCachedMap = Map;
+  mHaveMap = TRUE;
   Selected = 0;
   DrawMenu (Selected);
   for (;;) {
@@ -274,7 +285,7 @@ ChooseDumpMode (EFI_FILE_PROTOCOL *Root, UINTN *Mode)
       if (Selected > 0) { Selected--; }
       DrawMenu (Selected);
     } else if (SameKey (&Key, &Map.Key[1])) {
-      if (Selected < 1) { Selected++; }
+      if (Selected < 2) { Selected++; }
       DrawMenu (Selected);
     } else {
       AsciiSPrint (Text, sizeof (Text), "Unmapped key scan=%04x unicode=%04x\r\n",

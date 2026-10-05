@@ -51,9 +51,10 @@ def read_manifest(directory):
 
 def verify(directory, merge=None):
     directory = Path(directory)
-    if "mode=partitions" in (directory / "manifest.txt").read_text(encoding="ascii").splitlines():
+    modes = (directory / "manifest.txt").read_text(encoding="ascii").splitlines()
+    if "mode=partitions" in modes or "mode=gpt" in modes:
         if merge is not None:
-            raise ValueError("A partition set is not a full disk image. Use --merge on one pNNNN-name directory at a time.")
+            raise ValueError("A partition/GPT range set is not a full disk image. Use --merge on one pNNNN-name directory at a time.")
         return verify_partition_set(directory)
     parts, total = read_manifest(directory)
     output = None
@@ -149,11 +150,12 @@ def verify_partition_set(directory):
         print("Partition: " + name)
         # These are individual range dumps; never merge them into a fake raw disk.
         read_manifest(child)
-        if "mode=partitions" in child_lines:
+        if "mode=partitions" in child_lines or "mode=gpt" in child_lines:
             raise ValueError("Nested partition sets are not supported")
         if verify(child) != size:
             raise ValueError("Partition byte count mismatch: " + name)
-    print("Verified partition set: %d bytes, %d partitions" % (expected_bytes, expected_count))
+    print("Verified %s: %d bytes, %d ranges" %
+          ("GPT set" if "mode=gpt" in lines else "partition set", expected_bytes, expected_count))
     return expected_bytes
 
 

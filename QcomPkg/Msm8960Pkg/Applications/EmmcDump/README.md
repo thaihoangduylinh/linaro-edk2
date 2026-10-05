@@ -36,19 +36,29 @@ Module không được thêm vào FDF. File `.efi` được sinh riêng; các l�
    Chỉ cắm USB đích cần dùng. Nên dùng USB có dung lượng lớn hơn eMMC.
 2. Dùng loader có khả năng thực thi ứng dụng UEFI ARM để nạp `EmmcDump.efi`.
    Nếu đã có UEFI Shell, có thể chạy `fs0:\EmmcDump.efi` (đổi `fs0:` cho đúng USB).
-3. Phiên bản 1.2 hiển thị menu, chỉ bắt đầu dump khi bấm Power để chọn. Lần đầu
+3. Phiên bản 1.3 hiển thị menu, chỉ bắt đầu dump khi bấm Power để chọn. Lần đầu
    làm theo hướng dẫn bấm/thả Volume Up, Volume Down, Power để nhận diện mã phím.
    Nếu có console input, nhấn ESC để hủy giữa các lượt đọc. Mỗi lần chạy tạo thư mục mới `EmmcDump-0000`,
    `EmmcDump-0001`, ...; không ghi đè các bản dump trước.
 4. Chờ báo thành công. Kiểm tra `manifest.txt` có dòng `COMPLETE`, rồi kiểm tra
    các file bằng script bên dưới trước khi dùng bản dump.
 
-## Menu và nút điện thoại (phiên bản 1.2)
+## Menu và nút điện thoại (phiên bản 1.3)
 
-Menu có đúng hai lựa chọn:
+Menu có ba lựa chọn:
 
 1. **FULL DUMP (1 GIB PARTS)**: toàn bộ eMMC User, chia file như trước.
 2. **PARTITIONS FROM PARTITION.TXT**: chỉ các phân vùng GPT được chỉ định.
+3. **GPT (PRIMARY + BACKUP)**: MBR và GPT chính ở đầu eMMC User, cùng GPT dự phòng ở cuối.
+
+Sau mỗi lượt dump thành công, hủy hoặc báo lỗi, ứng dụng hiển thị kết quả trong
+5 giây rồi quay về menu chờ lệnh. Mỗi lượt tạo thư mục mới và mở lại thiết bị USB.
+Ánh xạ phím được giữ trong RAM trong suốt phiên chạy. Lỗi khởi tạo menu/không có
+giao thức nhập phím vẫn có thể khiến ứng dụng thoát về loader.
+
+File `EmmcDump.keys` đã cung cấp có mã scan Volume Up `0x0001`, Volume Down
+`0x0002`, Power `0x0102`; Unicode của cả ba bằng 0. Giữ file ở gốc USB để ứng dụng
+nạp ánh xạ này, không cần học lại mỗi lần khởi động.
 
 Volume Up đi lên, Volume Down đi xuống, Power chọn. Nhấn ngắn rồi thả từng nút.
 Lần đầu ứng dụng học ba mã phím theo thứ tự trên và lưu vào `\EmmcDump.keys`
@@ -61,6 +71,34 @@ của nút qua một trong hai giao thức này. Nếu màn hình học phím kh
 cần bổ sung giao thức keypad riêng của firmware; mã phím không được đoán từ GPIO.
 Có thể dùng bàn phím USB qua hub và học ba phím thay thế nếu firmware hỗ trợ.
 Menu chờ lựa chọn, không tự chuyển sang dump khi hết thời gian.
+
+## Dump GPT
+
+GPT không mặc định là 2 MiB đầu eMMC. Mục 3 đọc kích thước và vị trí từ hai GPT
+header, kiểm tra CRC32 của header và bảng entry, kiểm tra hai bản có thông tin
+nhất quán. GPT lỗi hoặc không nhất quán sẽ báo lỗi rồi quay lại menu; không tự sửa
+GPT và không ghi vào eMMC. Mục này không dùng `partition.txt`.
+
+Đầu ra nằm trong thư mục `EmmcDump-NNNN` mới:
+
+```text
+manifest.txt
+p0000-GPT-primary/manifest.txt
+p0000-GPT-primary/emmc-0000.bin
+p0001-GPT-backup/manifest.txt
+p0001-GPT-backup/emmc-0000.bin
+```
+
+Vùng chính bắt đầu tại LBA 0, bao gồm MBR, primary header và bảng entry chính.
+Vùng dự phòng bắt đầu tại bảng entry dự phòng và kết thúc tại LBA cuối eMMC.
+Manifest lưu LBA nguồn và số byte của từng vùng. Không nối hai vùng thành ảnh
+toàn ổ. Nếu vùng metadata lớn hơn 1 GiB thì vẫn chia thành nhiều file như chế độ
+full. Dung lượng USB cần bằng tổng hai vùng cộng 16 MiB dự phòng.
+
+`verify_dump.py` nhận diện `mode=gpt` và kiểm tra cả hai thư mục con. Để tương
+thích định dạng range dump đang có, manifest dùng các trường `partition_dir`,
+`partition_name`, `partition_set`, `PARTITION_SET_COMPLETE` cho cả vùng GPT;
+`Scope` trong manifest con ghi rõ đây là metadata GPT, không phải phân vùng.
 
 ## partition.txt
 
