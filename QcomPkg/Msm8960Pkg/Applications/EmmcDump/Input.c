@@ -205,6 +205,7 @@ DrawMenu (UINTN Selected)
   ScreenWrite (Selected == 0 ? "> 1. FULL DUMP (1 GIB PARTS)\r\n" : "  1. FULL DUMP (1 GIB PARTS)\r\n");
   ScreenWrite (Selected == 1 ? "> 2. PARTITIONS FROM PARTITION.TXT\r\n" : "  2. PARTITIONS FROM PARTITION.TXT\r\n");
   ScreenWrite (Selected == 2 ? "> 3. GPT (PRIMARY + BACKUP)\r\n" : "  3. GPT (PRIMARY + BACKUP)\r\n");
+  ScreenWrite (Selected == 3 ? "> 4. EXIT\r\n" : "  4. EXIT\r\n");
   ScreenWrite ("\r\nVOLUME UP: UP\r\nVOLUME DOWN: DOWN\r\nPOWER: SELECT\r\n\r\nRelease each button after pressing.\r\n");
 }
 
@@ -285,7 +286,7 @@ ChooseDumpMode (EFI_FILE_PROTOCOL *Root, UINTN *Mode)
       if (Selected > 0) { Selected--; }
       DrawMenu (Selected);
     } else if (SameKey (&Key, &Map.Key[1])) {
-      if (Selected < 2) { Selected++; }
+      if (Selected < 3) { Selected++; }
       DrawMenu (Selected);
     } else {
       AsciiSPrint (Text, sizeof (Text), "Unmapped key scan=%04x unicode=%04x\r\n",

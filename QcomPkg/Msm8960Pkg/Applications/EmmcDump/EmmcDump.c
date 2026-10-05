@@ -735,6 +735,11 @@ UefiMain (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
     Status = ChooseDumpMode (Root, &Mode);
     if (Root != NULL) { Root->Close (Root); Root = NULL; }
     if (EFI_ERROR (Status)) { goto Exit; }
+    if (Mode == 3) {
+      ScreenWrite ("Exiting EmmcDump...\r\n");
+      ScreenRelease ();
+      return EFI_SUCCESS;
+    }
     // Reopen the USB and source each time; a failed job must not end the menu.
     RunDump (ImageHandle, Mode);
     ScreenWrite ("\r\nReturning to menu in 5 seconds...\r\n");
