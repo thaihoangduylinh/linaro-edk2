@@ -45,14 +45,18 @@ Module không được thêm vào FDF. File `.efi` được sinh riêng; các l�
 
 ## Menu và nút điện thoại (phiên bản 1.3)
 
-Menu có sáu lựa chọn:
+Menu có bảy lựa chọn:
 
 1. **FULL DUMP (1 GIB PARTS)**: toàn bộ eMMC User, chia file như trước.
 2. **DUMP PARTITION (GPT MENU)**: đọc GPT và chọn một phân vùng để dump.
 3. **GPT (PRIMARY + BACKUP)**: MBR và GPT chính ở đầu eMMC User, cùng GPT dự phòng ở cuối.
 4. **DISABLE SECURE BOOT**: chạy `\SecurityToggleApp.efi` với tham số `/SecureBootDisable`.
 5. **MASSSTORAGE**: chạy `\Cmd.efi` với tham số `MassStorage`.
-6. **EXIT**: thoát ứng dụng và trả quyền điều khiển về loader bằng `EFI_SUCCESS`.
+6. **SHUT DOWN**: yêu cầu firmware tắt máy qua `ResetSystem(EfiResetShutdown)`.
+7. **EXIT**: thoát ứng dụng và trả quyền điều khiển về loader bằng `EFI_SUCCESS`.
+
+Chọn SHUT DOWN bằng Power để tắt máy. Nếu firmware thiếu dịch vụ hoặc lời gọi
+trả về mà không tắt máy, ứng dụng hiện thông báo rồi quay về menu sau 5 giây.
 
 Quy tắc giao diện: **EXIT luôn ở cuối menu chính**, **BACK luôn ở cuối menu con**.
 

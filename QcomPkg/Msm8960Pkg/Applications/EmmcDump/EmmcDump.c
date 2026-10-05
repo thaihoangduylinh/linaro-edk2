@@ -874,7 +874,17 @@ UefiMain (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
       return EFI_SUCCESS;
     }
     // Reopen the USB and source each time; a failed job must not end the menu.
-    if (Mode == MENU_PARTITIONS) {
+    if (Mode == MENU_SHUTDOWN) {
+      // No dump files remain open when control is back at the main menu.
+      ScreenWrite ("Shutting down...\r\n");
+      if (gST->RuntimeServices != NULL && gST->RuntimeServices->ResetSystem != NULL) {
+        gST->RuntimeServices->ResetSystem (EfiResetShutdown, EFI_SUCCESS, 0, NULL);
+        // ResetSystem should not return after a successful shutdown.
+        Log ("Firmware returned without shutting down.\r\n");
+      } else {
+        Log ("Firmware shutdown service is unavailable.\r\n");
+      }
+    } else if (Mode == MENU_PARTITIONS) {
       PartitionMenu (ImageHandle);
       continue;
     } else if (Mode == MENU_SECURITY) {

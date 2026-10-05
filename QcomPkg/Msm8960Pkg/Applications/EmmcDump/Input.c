@@ -208,7 +208,8 @@ DrawMenu (UINTN Selected)
   ScreenWrite (Selected == 2 ? "> 3. GPT (PRIMARY + BACKUP)\r\n" : "  3. GPT (PRIMARY + BACKUP)\r\n");
   ScreenWrite (Selected == MENU_SECURITY ? "> 4. DISABLE SECURE BOOT\r\n" : "  4. DISABLE SECURE BOOT\r\n");
   ScreenWrite (Selected == MENU_MASS_STORAGE ? "> 5. MASSSTORAGE\r\n" : "  5. MASSSTORAGE\r\n");
-  ScreenWrite (Selected == MENU_EXIT ? "> 6. EXIT\r\n" : "  6. EXIT\r\n");
+  ScreenWrite (Selected == MENU_SHUTDOWN ? "> 6. SHUT DOWN\r\n" : "  6. SHUT DOWN\r\n");
+  ScreenWrite (Selected == MENU_EXIT ? "> 7. EXIT\r\n" : "  7. EXIT\r\n");
   ScreenWrite ("\r\nVOLUME UP: UP\r\nVOLUME DOWN: DOWN\r\nPOWER: SELECT\r\n\r\nRelease each button after pressing.\r\n");
 }
 
