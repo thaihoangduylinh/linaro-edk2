@@ -227,6 +227,22 @@ ScreenInit (VOID)
   }
 }
 
+VOID
+ScreenClear (VOID)
+{
+  UINTN Index;
+  if (mGop != NULL && !EFI_ERROR (mGopStatus)) {
+    ZeroMem (mCells, (mColumns + 1) * mRows);
+    mRow = 0;
+    mColumn = 0;
+    for (Index = 0; Index <= mRows; Index++) {
+      if (EFI_ERROR (DrawRow (Index, "", FALSE))) { break; }
+    }
+  } else if (gST->ConOut != NULL) {
+    gST->ConOut->ClearScreen (gST->ConOut);
+  }
+}
+
 STATIC VOID
 NextRow (VOID)
 {

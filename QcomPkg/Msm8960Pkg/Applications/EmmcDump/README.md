@@ -36,11 +36,74 @@ Module không được thêm vào FDF. File `.efi` được sinh riêng; các l�
    Chỉ cắm USB đích cần dùng. Nên dùng USB có dung lượng lớn hơn eMMC.
 2. Dùng loader có khả năng thực thi ứng dụng UEFI ARM để nạp `EmmcDump.efi`.
    Nếu đã có UEFI Shell, có thể chạy `fs0:\EmmcDump.efi` (đổi `fs0:` cho đúng USB).
-3. Ứng dụng bắt đầu tự động, không yêu cầu bàn phím. Nếu có console input, nhấn ESC
-   để hủy giữa các lượt đọc. Mỗi lần chạy tạo thư mục mới `EmmcDump-0000`,
+3. Phiên bản 1.2 hiển thị menu, chỉ bắt đầu dump khi bấm Power để chọn. Lần đầu
+   làm theo hướng dẫn bấm/thả Volume Up, Volume Down, Power để nhận diện mã phím.
+   Nếu có console input, nhấn ESC để hủy giữa các lượt đọc. Mỗi lần chạy tạo thư mục mới `EmmcDump-0000`,
    `EmmcDump-0001`, ...; không ghi đè các bản dump trước.
 4. Chờ báo thành công. Kiểm tra `manifest.txt` có dòng `COMPLETE`, rồi kiểm tra
    các file bằng script bên dưới trước khi dùng bản dump.
+
+## Menu và nút điện thoại (phiên bản 1.2)
+
+Menu có đúng hai lựa chọn:
+
+1. **FULL DUMP (1 GIB PARTS)**: toàn bộ eMMC User, chia file như trước.
+2. **PARTITIONS FROM PARTITION.TXT**: chỉ các phân vùng GPT được chỉ định.
+
+Volume Up đi lên, Volume Down đi xuống, Power chọn. Nhấn ngắn rồi thả từng nút.
+Lần đầu ứng dụng học ba mã phím theo thứ tự trên và lưu vào `\EmmcDump.keys`
+trên USB. Những lần sau vào thẳng menu. Để nhận diện lại (đổi loader hoặc bấm sai),
+xóa `EmmcDump.keys` trên USB. Nếu không lưu được file này thì lần sau sẽ học lại.
+
+Ứng dụng đọc cả Simple Text Input và Simple Text Input Ex, kể cả các handle chưa
+được gắn vào `ConIn`. Không tự đọc thanh ghi GPIO/PMIC. Loader phải công bố sự kiện
+của nút qua một trong hai giao thức này. Nếu màn hình học phím không nhận nút,
+cần bổ sung giao thức keypad riêng của firmware; mã phím không được đoán từ GPIO.
+Có thể dùng bàn phím USB qua hub và học ba phím thay thế nếu firmware hỗ trợ.
+Menu chờ lựa chọn, không tự chuyển sang dump khi hết thời gian.
+
+## partition.txt
+
+Copy file mẫu `partition.txt` cạnh source vào **thư mục gốc USB** và sửa tên phân
+vùng theo GPT của máy. Một tên trên một dòng, ví dụ:
+
+```text
+# Only the partitions I need
+SBL1
+UEFI
+MainOS
+```
+
+Đây chỉ là tên ví dụ, không bảo đảm máy nào cũng có. Tên được so sánh không phân
+biệt hoa/thường; bỏ khoảng trắng đầu/cuối. File ASCII hoặc UTF-8 chứa tên ASCII
+(chấp nhận UTF-8 BOM), không dùng UTF-16. Dòng trống và dòng bắt đầu bằng `#` được
+bỏ qua. Giới hạn 64 tên, mỗi tên 36 ký tự, file tối đa 16 KiB. Không hỗ trợ LBA
+tự nhập, ký tự đại diện hoặc danh sách ngăn cách bằng dấu phẩy.
+
+Ứng dụng kiểm tra chữ ký, header CRC32 và entry-array CRC32 của GPT chính, giới
+hạn LBA và các vùng đã chọn không chồng nhau. GPT chính lỗi thì dừng, chưa tự phục
+hồi từ GPT dự phòng. Tất cả tên phải tồn tại duy nhất; tên sai/trùng sẽ dừng trước
+khi đọc dump. Các tên và LBA thực tế trong GPT được ghi vào manifest để đối chiếu.
+
+Dung lượng USB cần bằng tổng dung lượng **các phân vùng đã chọn** + 16 MiB. Phân
+vùng có dung lượng lớn vẫn được chia thành các phần tối đa 1 GiB. Ví dụ đầu ra:
+
+```text
+EmmcDump-0001/
+  manifest.txt
+  p0000-SBL1/
+    manifest.txt
+    emmc-0000.bin
+  p0001-UEFI/
+    manifest.txt
+    emmc-0000.bin
+```
+
+Manifest con ghi tên, LBA nguồn và CRC32 từng file. Trường `last_lba` trong geometry
+con tính từ đầu ảnh phân vùng (LBA tương đối); `source_start_lba/source_end_lba` là
+LBA thật trên eMMC. Manifest cha chỉ có `PARTITION_SET_COMPLETE` khi tất cả phân
+vùng đã hoàn tất. Đây **không phải** ảnh full disk, không có GPT hoặc khoảng trống
+ngoài các phân vùng. Không nối ảnh các phân vùng thành ảnh eMMC nguyên vẹn.
 
 USB được nhận diện bằng node USB trong device path. Ưu tiên filesystem chứa chính
 ứng dụng nếu đó là USB; nếu loader nạp từ RAM/NBH, yêu cầu duy nhất một filesystem
@@ -114,6 +177,16 @@ py -3 verify_dump.py E:\EmmcDump-0000
 py -3 verify_dump.py E:\EmmcDump-0000 --merge D:\Backups\emmc.bin
 ```
 
+Với chế độ phân vùng, kiểm tra toàn bộ tập hoặc ghép riêng một phân vùng:
+
+```bat
+py -3 verify_dump.py E:\EmmcDump-0001
+py -3 verify_dump.py E:\EmmcDump-0001\p0001-UEFI --merge D:\Backups\UEFI.bin
+```
+
+`--merge` trên thư mục cha của tập phân vùng bị từ chối để tránh tạo ảnh full disk
+sai cấu trúc.
+
 Script kiểm tra COMPLETE, geometry, thứ tự, số byte và CRC32 của tất cả các phần.
 Đích ghép phải ở ngoài thư mục dump, trên filesystem hỗ trợ file lớn và hard link
 (ví dụ NTFS/ext4). Nó tạo `emmc.bin.partial`, chỉ công bố tên `emmc.bin` sau khi
@@ -130,6 +203,7 @@ nhận header/chữ ký của gói cần được xác minh riêng với loader 
 mới sẽ được bootloader chấp nhận hay firmware sẽ cung cấp đủ giao thức.
 
 Chưa kiểm thử trên HTC 8X thật. Project được bàn giao source để bạn tự build.
+Phần menu/GPT của phiên bản 1.2 chưa build hoặc chạy kiểm thử, theo yêu cầu chỉ sửa source.
 
 ## Kiểm tra trên PC
 

@@ -1,0 +1,6 @@
+# Copy this file to the root of the destination USB.
+# One exact GPT partition name per line (ASCII, case-insensitive).
+# Edit these EXAMPLES to match your phone. Remove unwanted lines.
+# All names must exist uniquely; otherwise nothing will be dumped.
+SBL1
+UEFI

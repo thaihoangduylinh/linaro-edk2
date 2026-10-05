@@ -4,6 +4,7 @@
 #include <Uefi.h>
 
 VOID ScreenInit (VOID);
+VOID ScreenClear (VOID);
 VOID ScreenWrite (CONST CHAR8 *Text);
 VOID ScreenProgress (UINT64 Done, UINT64 Total);
 VOID ScreenDescription (CHAR8 *Text, UINTN Size);

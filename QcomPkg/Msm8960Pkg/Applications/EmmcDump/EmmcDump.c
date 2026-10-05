@@ -20,6 +20,8 @@
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/UefiLib.h>
 #include "Screen.h"
+#include "Input.h"
+#include "Partitions.h"
 
 #define DUMP_BUFFER_SIZE  (4U * 1024U * 1024U)
 #define DUMP_PART_SIZE    (1024U * 1024U * 1024U)
@@ -372,7 +374,7 @@ Cancelled (VOID)
 }
 
 STATIC EFI_STATUS
-DumpDisk (EFI_BLOCK_IO_PROTOCOL *Io, EFI_FILE_PROTOCOL *Directory, UINT64 Total)
+DumpRange (EFI_BLOCK_IO_PROTOCOL *Io, EFI_FILE_PROTOCOL *Directory, EFI_LBA Start, UINT64 Total)
 {
   EFI_BLOCK_IO_MEDIA Media;
   EFI_STATUS Status;
@@ -392,6 +394,8 @@ DumpDisk (EFI_BLOCK_IO_PROTOCOL *Io, EFI_FILE_PROTOCOL *Directory, UINT64 Total)
   UINT64 NextProgress;
   EFI_LBA Lba;
   CHAR16 Name[32];
+  UINT64 Blocks;
+  UINT32 Remainder;
 
   // Revision 1 firmware need not allocate the optional revision 2/3 fields.
   ZeroMem (&Media, sizeof (Media));
@@ -405,10 +409,10 @@ DumpDisk (EFI_BLOCK_IO_PROTOCOL *Io, EFI_FILE_PROTOCOL *Directory, UINT64 Total)
       Media.IoAlign > DUMP_BUFFER_SIZE) {
     return EFI_UNSUPPORTED;
   }
-  if (Media.LastBlock == MAX_UINT64 ||
-      Media.LastBlock + 1 > DivU64x32 (MAX_UINT64, Media.BlockSize) ||
-      MultU64x32 (Media.LastBlock + 1, Media.BlockSize) != Total) {
-    return EFI_MEDIA_CHANGED;
+  Blocks = DivU64x32Remainder (Total, Media.BlockSize, &Remainder);
+  if (Media.LastBlock == MAX_UINT64 || Total == 0 || Remainder != 0 ||
+      Start > Media.LastBlock || Blocks > Media.LastBlock - Start + 1) {
+    return EFI_INVALID_PARAMETER;
   }
   Alignment = MAX ((UINTN)Media.IoAlign, (UINTN)EFI_PAGE_SIZE);
   BufferSize = DUMP_BUFFER_SIZE;
@@ -429,7 +433,7 @@ DumpDisk (EFI_BLOCK_IO_PROTOCOL *Io, EFI_FILE_PROTOCOL *Directory, UINT64 Total)
   PartLimit = DUMP_PART_SIZE - (DUMP_PART_SIZE % Media.BlockSize);
   File = NULL;
   Done = 0;
-  Lba = 0;
+  Lba = Start;
   Part = 0;
   NextProgress = 0;
   InitCrc ();
@@ -509,6 +513,70 @@ Exit:
   return Status;
 }
 
+STATIC EFI_STATUS
+DumpPartitions (EFI_BLOCK_IO_PROTOCOL *Io, EFI_FILE_PROTOCOL *Directory, PARTITION_PLAN *Plan)
+{
+  EFI_FILE_PROTOCOL *ParentLog;
+  EFI_FILE_PROTOCOL *PartDirectory;
+  EFI_FILE_PROTOCOL *PartLog;
+  EFI_STATUS Status;
+  EFI_STATUS CloseStatus;
+  UINTN Index;
+  UINTN Ch;
+  CHAR16 SafeName[37];
+  CHAR16 DirectoryName[64];
+
+  ParentLog = mLog;
+  for (Index = 0; Index < Plan->Count; Index++) {
+    if (!Io->Media->MediaPresent || Io->Media->MediaId != Plan->MediaId ||
+        Io->Media->BlockSize != Plan->BlockSize || Io->Media->LastBlock != Plan->LastBlock) {
+      return EFI_MEDIA_CHANGED;
+    }
+    ZeroMem (SafeName, sizeof (SafeName));
+    for (Ch = 0; Ch < 36 && Plan->Part[Index].Name[Ch] != 0; Ch++) {
+      SafeName[Ch] = Plan->Part[Index].Name[Ch];
+      if (!((SafeName[Ch] >= L'A' && SafeName[Ch] <= L'Z') ||
+            (SafeName[Ch] >= L'a' && SafeName[Ch] <= L'z') ||
+            (SafeName[Ch] >= L'0' && SafeName[Ch] <= L'9') ||
+            SafeName[Ch] == L'_' || SafeName[Ch] == L'-')) {
+        SafeName[Ch] = L'_';
+      }
+    }
+    UnicodeSPrint (DirectoryName, sizeof (DirectoryName), L"p%04d-%s", (UINT32)Index, SafeName);
+    Status = Log ("partition_dir=%s start_lba=%Ld end_lba=%Ld bytes=%Ld name=%s\r\n",
+                  DirectoryName, Plan->Part[Index].Start, Plan->Part[Index].End,
+                  Plan->Part[Index].Bytes, Plan->Part[Index].Name);
+    if (EFI_ERROR (Status)) { return Status; }
+    Status = Directory->Open (Directory, &PartDirectory, DirectoryName, FILE_CREATE, EFI_FILE_DIRECTORY);
+    if (EFI_ERROR (Status)) { return Status; }
+    Status = PartDirectory->Open (PartDirectory, &PartLog, L"manifest.txt", FILE_CREATE, 0);
+    if (EFI_ERROR (Status)) {
+      PartDirectory->Close (PartDirectory);
+      return Status;
+    }
+    mLog = PartLog;
+    Status = Log ("EmmcDump format=1\r\nScope=single GPT partition (not a full disk image)\r\n"
+                  "partition_name=%s source_start_lba=%Ld source_end_lba=%Ld\r\n"
+                  "total_bytes=%Ld block_size=%d last_lba=%Ld\r\n",
+                  Plan->Part[Index].Name, Plan->Part[Index].Start, Plan->Part[Index].End,
+                  Plan->Part[Index].Bytes, Plan->BlockSize,
+                  Plan->Part[Index].End - Plan->Part[Index].Start);
+    if (!EFI_ERROR (Status)) {
+      Status = DumpRange (Io, PartDirectory, Plan->Part[Index].Start, Plan->Part[Index].Bytes);
+    }
+    if (EFI_ERROR (Status)) { Log ("FAILED partition=%s status=%r\r\n", Plan->Part[Index].Name, Status); }
+    CloseStatus = PartLog->Close (PartLog);
+    mLog = ParentLog;
+    if (!EFI_ERROR (Status)) { Status = CloseStatus; }
+    CloseStatus = PartDirectory->Close (PartDirectory);
+    if (!EFI_ERROR (Status)) { Status = CloseStatus; }
+    if (EFI_ERROR (Status)) { return Status; }
+  }
+  Status = Directory->Flush (Directory);
+  if (EFI_ERROR (Status)) { return Status; }
+  return Log ("PARTITION_SET_COMPLETE bytes=%Ld partitions=%d\r\n", Plan->Total, (UINT32)Plan->Count);
+}
+
 EFI_STATUS EFIAPI
 UefiMain (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
 {
@@ -523,14 +591,17 @@ UefiMain (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
   UINT64 Total;
   UINT64 Blocks;
   CHAR8 Display[192];
+  UINTN Mode;
+  PARTITION_PLAN *Plan;
 
   Root = NULL;
   Directory = NULL;
   Info = NULL;
   mLog = NULL;
+  Plan = NULL;
   (VOID)SystemTable;
   ScreenInit ();
-  Log ("EmmcDump 1.1: raw internal disk -> USB. ESC cancels.\r\n");
+  Log ("EmmcDump 1.2: raw internal disk -> USB. ESC cancels a running dump.\r\n");
   // Long synchronous disk transfers must not trigger the boot watchdog.
   Status = gBS->SetWatchdogTimer (0, 0, 0, NULL);
   if (EFI_ERROR (Status)) {
@@ -569,6 +640,10 @@ UefiMain (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
   if (EFI_ERROR (Status)) {
     goto Exit;
   }
+  Status = ChooseDumpMode (Root, &Mode);
+  if (EFI_ERROR (Status)) { goto Exit; }
+  Status = Log ("mode=%a\r\n", Mode == 0 ? "full" : "partitions");
+  if (EFI_ERROR (Status)) { goto Exit; }
   Status = FindSource (Destination, &Source, &SourceHandle);
   if (EFI_ERROR (Status)) {
     goto Exit;
@@ -578,11 +653,21 @@ UefiMain (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
     goto Exit;
   }
   Blocks = Source->Media->LastBlock + 1;
-  if (Blocks > DivU64x32 (MAX_UINT64, Source->Media->BlockSize)) {
+  if (Blocks > DivU64x32 (MAX_INT64 - SPACE_RESERVE, Source->Media->BlockSize)) {
     Status = EFI_UNSUPPORTED;
     goto Exit;
   }
   Total = MultU64x32 (Blocks, Source->Media->BlockSize);
+  if (Mode == 1) {
+    Status = LoadPartitionPlan (Root, Source, &Plan, Log);
+    if (EFI_ERROR (Status)) { goto Exit; }
+    Total = Plan->Total;
+  }
+  // Refresh after time spent in the menu and reading the partition list.
+  FreePool (Info);
+  Info = NULL;
+  Status = VolumeInfo (Root, &Info);
+  if (EFI_ERROR (Status)) { goto Exit; }
   // Includes slack for directory entries, manifest and filesystem allocation.
   if (Info->FreeSpace < SPACE_RESERVE || Total > Info->FreeSpace - SPACE_RESERVE) {
     Log ("Insufficient USB space: dump=%Ld free=%Ld reserve=%d\r\n",
@@ -593,17 +678,22 @@ UefiMain (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
 	Log ("USB free  : %Ld bytes\r\n", Info->FreeSpace);
 	Log ("Required  : %Ld bytes\r\n", Total + SPACE_RESERVE);
 	Log ("Missing   : %Ld bytes\r\n", Total + SPACE_RESERVE - Info->FreeSpace);
-	Log ("Use a larger USB drive, preferably 32 GB.\r\n");
+    Log ("Use a larger USB or select fewer partitions.\r\n");
     Status = EFI_VOLUME_FULL;
     goto Exit;
   }
   Status = LogPath ("source_path", DevicePathFromHandle (SourceHandle));
   if (!EFI_ERROR (Status)) {
-    Status = Log ("total_bytes=%Ld block_size=%d last_lba=%Ld\r\n",
-                  Total, Source->Media->BlockSize, Source->Media->LastBlock);
+    if (Mode == 0) {
+      Status = Log ("total_bytes=%Ld block_size=%d last_lba=%Ld\r\n",
+                    Total, Source->Media->BlockSize, Source->Media->LastBlock);
+    } else {
+      Status = Log ("partition_set block_size=%d last_lba=%Ld\r\n",
+                    Plan->BlockSize, Plan->LastBlock);
+    }
   }
   if (!EFI_ERROR (Status)) {
-    Status = DumpDisk (Source, Directory, Total);
+    Status = Mode == 0 ? DumpRange (Source, Directory, 0, Total) : DumpPartitions (Source, Directory, Plan);
   }
 
 Exit:
@@ -631,6 +721,7 @@ Exit:
   if (Info != NULL) {
     FreePool (Info);
   }
+  if (Plan != NULL) { FreePool (Plan); }
   Log ("EmmcDump finished: %r\r\n", Status);
   // Phone loaders may have no keyboard; never block indefinitely waiting for one.
   gBS->Stall (30 * 1000 * 1000);
