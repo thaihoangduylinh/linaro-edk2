@@ -581,7 +581,8 @@ DumpPartitions (EFI_BLOCK_IO_PROTOCOL *Io, EFI_FILE_PROTOCOL *Directory, PARTITI
 }
 
 STATIC EFI_STATUS
-RunDump (EFI_HANDLE ImageHandle, UINTN Mode)
+RunDump (EFI_HANDLE ImageHandle, UINTN Mode, CONST PARTITION_PLAN *MenuPlan,
+         UINTN Selected, EFI_HANDLE ExpectedSource)
 {
   EFI_STATUS Status;
   EFI_STATUS CloseStatus;
@@ -650,11 +651,25 @@ RunDump (EFI_HANDLE ImageHandle, UINTN Mode)
   }
   Total = MultU64x32 (Blocks, Source->Media->BlockSize);
   if (Mode != 0) {
-    Status = Mode == 1 ? LoadPartitionPlan (Root, Source, &Plan, Log) : LoadGptPlan (Source, &Plan, Log);
+    Status = Mode == MENU_PARTITIONS ? LoadPartitionPlan (NULL, Source, &Plan, Log) : LoadGptPlan (Source, &Plan, Log);
     if (EFI_ERROR (Status)) { goto Exit; }
+    if (Mode == MENU_PARTITIONS) {
+      if (MenuPlan == NULL || SourceHandle != ExpectedSource ||
+          Plan->MediaId != MenuPlan->MediaId || Plan->BlockSize != MenuPlan->BlockSize ||
+          Plan->LastBlock != MenuPlan->LastBlock || Plan->Count != MenuPlan->Count ||
+          Selected >= Plan->Count ||
+          CompareMem (&Plan->Part[Selected], &MenuPlan->Part[Selected], sizeof (DUMP_PARTITION)) != 0) {
+        Log ("Source/GPT changed. Reopen the partition menu.\r\n");
+        Status = EFI_MEDIA_CHANGED;
+        goto Exit;
+      }
+      Plan->Part[0] = Plan->Part[Selected];
+      Plan->Count = 1;
+      Plan->Total = Plan->Part[0].Bytes;
+    }
     Total = Plan->Total;
   }
-  // Refresh after time spent in the menu and reading the partition list.
+  // Refresh after reading and validating GPT.
   FreePool (Info);
   Info = NULL;
   Status = VolumeInfo (Root, &Info);
@@ -714,6 +729,45 @@ Exit:
   }
   if (Plan != NULL) { FreePool (Plan); }
   Log ("EmmcDump finished: %r\r\n", Status);
+  return Status;
+}
+
+STATIC EFI_STATUS
+PartitionMenu (EFI_HANDLE ImageHandle)
+{
+  EFI_HANDLE Destination;
+  EFI_HANDLE SourceHandle;
+  EFI_FILE_PROTOCOL *Root;
+  EFI_BLOCK_IO_PROTOCOL *Source;
+  PARTITION_PLAN *Plan;
+  EFI_STATUS Status;
+  UINTN Selected;
+
+  Root = NULL;
+  Plan = NULL;
+  Status = FindDestination (ImageHandle, &Destination, &Root);
+  if (EFI_ERROR (Status)) { goto Exit; }
+  Root->Close (Root);
+  Root = NULL;
+  Status = FindSource (Destination, &Source, &SourceHandle);
+  if (EFI_ERROR (Status)) { goto Exit; }
+  Status = LoadPartitionPlan (NULL, Source, &Plan, Log);
+  if (EFI_ERROR (Status)) { goto Exit; }
+  Selected = 0;
+  for (;;) {
+    Status = ChoosePartition (Plan, &Selected);
+    if (EFI_ERROR (Status) || Selected == Plan->Count) { break; }
+    RunDump (ImageHandle, MENU_PARTITIONS, Plan, Selected, SourceHandle);
+    ScreenWrite ("\r\nReturning to partition menu in 5 seconds...\r\n");
+    gBS->Stall (5000000);
+  }
+Exit:
+  if (Root != NULL) { Root->Close (Root); }
+  if (Plan != NULL) { FreePool (Plan); }
+  if (EFI_ERROR (Status)) {
+    Log ("Partition menu failed: %r\r\n", Status);
+    gBS->Stall (5000000);
+  }
   return Status;
 }
 
@@ -814,20 +868,23 @@ UefiMain (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
     Status = ChooseDumpMode (Root, &Mode);
     if (Root != NULL) { Root->Close (Root); Root = NULL; }
     if (EFI_ERROR (Status)) { goto Exit; }
-    if (Mode == 3) {
+    if (Mode == MENU_EXIT) {
       ScreenWrite ("Exiting EmmcDump...\r\n");
       ScreenRelease ();
       return EFI_SUCCESS;
     }
     // Reopen the USB and source each time; a failed job must not end the menu.
-    if (Mode == 4) {
+    if (Mode == MENU_PARTITIONS) {
+      PartitionMenu (ImageHandle);
+      continue;
+    } else if (Mode == MENU_SECURITY) {
       LaunchUsbApp (ImageHandle, L"\\SecurityToggleApp.efi",
                     L"/SecureBootDisable", sizeof (L"/SecureBootDisable"));
       Log ("Return status alone does not confirm Secure Boot was disabled.\r\n");
-    } else if (Mode == 5) {
+    } else if (Mode == MENU_MASS_STORAGE) {
       LaunchUsbApp (ImageHandle, L"\\Cmd.efi", L"MassStorage", sizeof (L"MassStorage"));
     } else {
-      RunDump (ImageHandle, Mode);
+      RunDump (ImageHandle, Mode, NULL, 0, NULL);
     }
     ScreenWrite ("\r\nReturning to menu in 5 seconds...\r\n");
     gBS->Stall (5000000);

@@ -137,8 +137,11 @@ LoadPartitionPlan (EFI_FILE_PROTOCOL *Root, EFI_BLOCK_IO_PROTOCOL *Io,
   Plan->MediaId = Io->Media->MediaId;
   Plan->BlockSize = Io->Media->BlockSize;
   Plan->LastBlock = Io->Media->LastBlock;
-  Status = ReadList (Root, Plan, Log);
-  if (EFI_ERROR (Status)) { goto Exit; }
+  // NULL Root requests every populated GPT entry for the interactive menu.
+  if (Root != NULL) {
+    Status = ReadList (Root, Plan, Log);
+    if (EFI_ERROR (Status)) { goto Exit; }
+  }
   if (Plan->BlockSize < sizeof (Header) || Plan->BlockSize > 65536 ||
       Plan->LastBlock < 3 || Io->Media->IoAlign > MAX_GPT_BYTES ||
       (Io->Media->IoAlign > 1 && (Io->Media->IoAlign & (Io->Media->IoAlign - 1)) != 0)) {
@@ -195,6 +198,18 @@ LoadPartitionPlan (EFI_FILE_PROTOCOL *Root, EFI_BLOCK_IO_PROTOCOL *Io,
     }
     CopyMem (Name, Entry.PartitionName, sizeof (Entry.PartitionName));
     Name[36] = 0;
+    if (Root == NULL) {
+      if (Plan->Count == MAX_DUMP_PARTITIONS) {
+        Status = EFI_OUT_OF_RESOURCES;
+        goto Exit;
+      }
+      CopyMem (Plan->Part[Plan->Count].Name, Name, sizeof (Name));
+      Plan->Part[Plan->Count].Start = Entry.StartingLBA;
+      Plan->Part[Plan->Count].End = Entry.EndingLBA;
+      Plan->Part[Plan->Count].Matches = 1;
+      Plan->Count++;
+      continue;
+    }
     Status = Log ("gpt_index=%d name=%s start_lba=%Ld end_lba=%Ld\r\n",
                   (UINT32)Index, Name, Entry.StartingLBA, Entry.EndingLBA);
     if (EFI_ERROR (Status)) { goto Exit; }

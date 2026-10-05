@@ -48,14 +48,16 @@ Module không được thêm vào FDF. File `.efi` được sinh riêng; các l�
 Menu có sáu lựa chọn:
 
 1. **FULL DUMP (1 GIB PARTS)**: toàn bộ eMMC User, chia file như trước.
-2. **PARTITIONS FROM PARTITION.TXT**: chỉ các phân vùng GPT được chỉ định.
+2. **DUMP PARTITION (GPT MENU)**: đọc GPT và chọn một phân vùng để dump.
 3. **GPT (PRIMARY + BACKUP)**: MBR và GPT chính ở đầu eMMC User, cùng GPT dự phòng ở cuối.
-4. **EXIT**: thoát ứng dụng và trả quyền điều khiển về loader bằng `EFI_SUCCESS`.
-5. **DISABLE SECURE BOOT**: chạy `\SecurityToggleApp.efi` với tham số `/SecureBootDisable`.
-6. **MASSSTORAGE**: chạy `\Cmd.efi` với tham số `MassStorage`.
+4. **DISABLE SECURE BOOT**: chạy `\SecurityToggleApp.efi` với tham số `/SecureBootDisable`.
+5. **MASSSTORAGE**: chạy `\Cmd.efi` với tham số `MassStorage`.
+6. **EXIT**: thoát ứng dụng và trả quyền điều khiển về loader bằng `EFI_SUCCESS`.
+
+Quy tắc giao diện: **EXIT luôn ở cuối menu chính**, **BACK luôn ở cuối menu con**.
 
 Copy `C:\Users\thaih\Desktop\SecurityToggleApp.efi` vào gốc USB với đúng tên
-`SecurityToggleApp.efi`. Chọn mục 5 bằng Power để nạp qua `LoadImage` và chạy bằng
+`SecurityToggleApp.efi`. Chọn mục 4 bằng Power để nạp qua `LoadImage` và chạy bằng
 `StartImage`. Trước khi chạy, EmmcDump gán chuỗi UTF-16 `/SecureBootDisable` vào
 `EFI_LOADED_IMAGE_PROTOCOL.LoadOptions`, với `LoadOptionsSize` là số byte gồm
 ký tự kết thúc NUL. Ứng dụng ngoài phụ trách menu và xác nhận thay đổi Secure Boot;
@@ -70,7 +72,7 @@ GOP renderer của EmmcDump không tự làm cho console của ứng dụng đó
 Firmware vẫn có thể từ chối nạp file với Security Violation hoặc Unsupported;
 khi đó EmmcDump hiện mã lỗi và quay về menu. Chức năng này chưa được chạy thử.
 
-Với mục 6, copy `Cmd.efi` vào gốc USB đang dùng. EmmcDump truyền đúng chuỗi UTF-16
+Với mục 5, copy `Cmd.efi` vào gốc USB đang dùng. EmmcDump truyền đúng chuỗi UTF-16
 `MassStorage` qua `LoadOptions`, bao gồm NUL trong số byte `LoadOptionsSize`.
 Hai tham số trên không kèm tên executable hoặc dấu ngoặc kép. Cả hai ứng dụng
 được nạp từ USB; đường dẫn cấu hình `fv1:` không được dùng trong launcher này.
@@ -126,39 +128,31 @@ thích định dạng range dump đang có, manifest dùng các trường `parti
 `partition_name`, `partition_set`, `PARTITION_SET_COMPLETE` cho cả vùng GPT;
 `Scope` trong manifest con ghi rõ đây là metadata GPT, không phải phân vùng.
 
-## partition.txt
+## Menu phân vùng GPT
 
-Copy file mẫu `partition.txt` cạnh source vào **thư mục gốc USB** và sửa tên phân
-vùng theo GPT của máy. Một tên trên một dòng, ví dụ:
+Mục 2 đọc trực tiếp GPT của eMMC User, không cần `partition.txt`. Mỗi phân vùng
+hiện tên và dung lượng byte; danh sách chia trang, tối đa 8 phân vùng mỗi trang.
+Volume Up/Down di chuyển, Power chọn và bắt đầu dump đúng phân vùng đang chọn.
+Các entry có tên trùng vẫn là các lựa chọn riêng theo thứ tự và LBA của GPT.
+Entry không có tên hiển thị `(unnamed)`.
 
-```text
-# Only the partitions I need
-SBL1
-UEFI
-MainOS
-```
-
-Đây chỉ là tên ví dụ, không bảo đảm máy nào cũng có. Tên được so sánh không phân
-biệt hoa/thường; bỏ khoảng trắng đầu/cuối. File ASCII hoặc UTF-8 chứa tên ASCII
-(chấp nhận UTF-8 BOM), không dùng UTF-16. Dòng trống và dòng bắt đầu bằng `#` được
-bỏ qua. Giới hạn 64 tên, mỗi tên 36 ký tự, file tối đa 16 KiB. Không hỗ trợ LBA
-tự nhập, ký tự đại diện hoặc danh sách ngăn cách bằng dấu phẩy.
+**BACK** luôn là dòng cuối menu con. Có thể bấm Volume Up từ phân vùng đầu tiên
+để đến BACK ngay, rồi Power để quay về menu chính. Sau mỗi lượt dump thành công,
+hủy hoặc lỗi, ứng dụng chờ 5 giây và quay về menu phân vùng, giữ vị trí đang chọn.
 
 Ứng dụng kiểm tra chữ ký, header CRC32 và entry-array CRC32 của GPT chính, giới
 hạn LBA và các vùng đã chọn không chồng nhau. GPT chính lỗi thì dừng, chưa tự phục
-hồi từ GPT dự phòng. Tất cả tên phải tồn tại duy nhất; tên sai/trùng sẽ dừng trước
-khi đọc dump. Các tên và LBA thực tế trong GPT được ghi vào manifest để đối chiếu.
+hồi từ GPT dự phòng. Giới hạn 4096 GPT entry, bảng entry tối đa 4 MiB. Trước mỗi
+lượt dump, GPT được đọc lại và đối chiếu nguồn, geometry, số lượng entry cùng
+tên/LBA/dung lượng entry đã chọn. Nếu khác, báo lỗi và yêu cầu mở lại menu phân vùng.
 
-Dung lượng USB cần bằng tổng dung lượng **các phân vùng đã chọn** + 16 MiB. Phân
+Dung lượng USB cần bằng dung lượng **phân vùng đang chọn** + 16 MiB. Phân
 vùng có dung lượng lớn vẫn được chia thành các phần tối đa 1 GiB. Ví dụ đầu ra:
 
 ```text
 EmmcDump-0001/
   manifest.txt
   p0000-SBL1/
-    manifest.txt
-    emmc-0000.bin
-  p0001-UEFI/
     manifest.txt
     emmc-0000.bin
 ```

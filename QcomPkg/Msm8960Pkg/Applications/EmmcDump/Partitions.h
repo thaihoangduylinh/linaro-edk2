@@ -4,7 +4,7 @@
 #include <Protocol/BlockIo.h>
 #include <Protocol/SimpleFileSystem.h>
 
-#define MAX_DUMP_PARTITIONS 64
+#define MAX_DUMP_PARTITIONS 4096
 typedef struct {
   CHAR16 Name[37];
   EFI_LBA Start;

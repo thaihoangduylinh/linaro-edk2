@@ -16,6 +16,7 @@ EFI_GUID gEfiLoadedImageProtocolGuid = EFI_LOADED_IMAGE_PROTOCOL_GUID;
 EFI_GUID gEfiFileSystemInfoGuid = EFI_FILE_SYSTEM_INFO_ID;
 // These legacy host checks cover printing/GOP, not menu or GPT/storage execution.
 EFI_STATUS ChooseDumpMode (EFI_FILE_PROTOCOL *Root, UINTN *Mode) { assert (0); return EFI_UNSUPPORTED; }
+EFI_STATUS ChoosePartition (CONST PARTITION_PLAN *Plan, UINTN *Selected) { assert (0); return EFI_UNSUPPORTED; }
 EFI_STATUS LoadPartitionPlan (EFI_FILE_PROTOCOL *Root, EFI_BLOCK_IO_PROTOCOL *Io,
                               PARTITION_PLAN **Plan, DUMP_LOG Log) { assert (0); return EFI_UNSUPPORTED; }
 EFI_STATUS LoadGptPlan (EFI_BLOCK_IO_PROTOCOL *Io, PARTITION_PLAN **Plan,

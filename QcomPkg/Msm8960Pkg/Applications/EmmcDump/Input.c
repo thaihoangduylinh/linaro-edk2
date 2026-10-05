@@ -3,6 +3,7 @@
 #include "Screen.h"
 #include <Protocol/SimpleTextInEx.h>
 #include <Library/BaseMemoryLib.h>
+#include <Library/BaseLib.h>
 #include <Library/MemoryAllocationLib.h>
 #include <Library/PrintLib.h>
 #include <Library/UefiBootServicesTableLib.h>
@@ -203,11 +204,11 @@ DrawMenu (UINTN Selected)
   ScreenClear ();
   ScreenWrite ("EMMCDUMP 1.3\r\n\r\n");
   ScreenWrite (Selected == 0 ? "> 1. FULL DUMP (1 GIB PARTS)\r\n" : "  1. FULL DUMP (1 GIB PARTS)\r\n");
-  ScreenWrite (Selected == 1 ? "> 2. PARTITIONS FROM PARTITION.TXT\r\n" : "  2. PARTITIONS FROM PARTITION.TXT\r\n");
+  ScreenWrite (Selected == MENU_PARTITIONS ? "> 2. DUMP PARTITION (GPT MENU)\r\n" : "  2. DUMP PARTITION (GPT MENU)\r\n");
   ScreenWrite (Selected == 2 ? "> 3. GPT (PRIMARY + BACKUP)\r\n" : "  3. GPT (PRIMARY + BACKUP)\r\n");
-  ScreenWrite (Selected == 3 ? "> 4. EXIT\r\n" : "  4. EXIT\r\n");
-  ScreenWrite (Selected == 4 ? "> 5. DISABLE SECURE BOOT\r\n" : "  5. DISABLE SECURE BOOT\r\n");
-  ScreenWrite (Selected == 5 ? "> 6. MASSSTORAGE\r\n" : "  6. MASSSTORAGE\r\n");
+  ScreenWrite (Selected == MENU_SECURITY ? "> 4. DISABLE SECURE BOOT\r\n" : "  4. DISABLE SECURE BOOT\r\n");
+  ScreenWrite (Selected == MENU_MASS_STORAGE ? "> 5. MASSSTORAGE\r\n" : "  5. MASSSTORAGE\r\n");
+  ScreenWrite (Selected == MENU_EXIT ? "> 6. EXIT\r\n" : "  6. EXIT\r\n");
   ScreenWrite ("\r\nVOLUME UP: UP\r\nVOLUME DOWN: DOWN\r\nPOWER: SELECT\r\n\r\nRelease each button after pressing.\r\n");
 }
 
@@ -288,12 +289,56 @@ ChooseDumpMode (EFI_FILE_PROTOCOL *Root, UINTN *Mode)
       if (Selected > 0) { Selected--; }
       DrawMenu (Selected);
     } else if (SameKey (&Key, &Map.Key[1])) {
-      if (Selected < 5) { Selected++; }
+      if (Selected + 1 < MENU_COUNT) { Selected++; }
       DrawMenu (Selected);
     } else {
       AsciiSPrint (Text, sizeof (Text), "Unmapped key scan=%04x unicode=%04x\r\n",
                   (UINT32)Key.ScanCode, (UINT32)Key.UnicodeChar);
       ScreenWrite (Text);
+    }
+  }
+}
+
+EFI_STATUS
+ChoosePartition (CONST PARTITION_PLAN *Plan, UINTN *Selected)
+{
+  EFI_INPUT_KEY Key;
+  EFI_STATUS Status;
+  UINTN First;
+  UINTN Index;
+  CHAR8 Text[192];
+
+  if (!mHaveMap) { return EFI_NOT_READY; }
+  if (*Selected > Plan->Count) { *Selected = 0; }
+  DiscoverInput ();
+  if (mInputCount == 0) { return EFI_UNSUPPORTED; }
+  DrainInput ();
+  for (;;) {
+    ScreenClear ();
+    ScreenWrite ("DUMP PARTITION - GPT\r\n\r\n");
+    First = (*Selected == Plan->Count && Plan->Count != 0) ? Plan->Count - 1 : *Selected;
+    First = (First / 8) * 8;
+    for (Index = First; Index < Plan->Count && Index < First + 8; Index++) {
+      AsciiSPrint (Text, sizeof (Text), "%a %d. %s\r\n    %Ld bytes\r\n",
+                  *Selected == Index ? ">" : " ", (UINT32)(Index + 1),
+                  Plan->Part[Index].Name[0] == 0 ? L"(unnamed)" : Plan->Part[Index].Name,
+                  Plan->Part[Index].Bytes);
+      ScreenWrite (Text);
+    }
+    if (Plan->Count == 0) { ScreenWrite ("No populated GPT partitions.\r\n"); }
+    // BACK is always the final row, including when the list spans pages.
+    ScreenWrite (*Selected == Plan->Count ? "\r\n> BACK\r\n" : "\r\n  BACK\r\n");
+    ScreenWrite ("\r\nVOLUME UP/DOWN: MOVE\r\nPOWER: SELECT\r\nUP FROM FIRST: BACK\r\n");
+    Status = WaitInput (&Key);
+    if (EFI_ERROR (Status)) { return Status; }
+    if (SameKey (&Key, &mCachedMap.Key[2])) {
+      ScreenClear ();
+      return EFI_SUCCESS;
+    }
+    if (SameKey (&Key, &mCachedMap.Key[0])) {
+      *Selected = *Selected == 0 ? Plan->Count : *Selected - 1;
+    } else if (SameKey (&Key, &mCachedMap.Key[1])) {
+      *Selected = *Selected == Plan->Count ? 0 : *Selected + 1;
     }
   }
 }
