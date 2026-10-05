@@ -42,6 +42,7 @@ EFI_DEVICE_PATH_PROTOCOL *EFIAPI NextDevicePathNode (CONST VOID *P) { return (VO
 BOOLEAN EFIAPI IsDevicePathEnd (CONST VOID *P) { return DevicePathType (P) == END_DEVICE_PATH_TYPE && DevicePathSubType (P) == END_ENTIRE_DEVICE_PATH_SUBTYPE; }
 UINTN EFIAPI GetDevicePathSize (CONST EFI_DEVICE_PATH_PROTOCOL *P) { assert (0); return 0; }
 EFI_DEVICE_PATH_PROTOCOL *EFIAPI DevicePathFromHandle (EFI_HANDLE Handle) { assert (0); return NULL; }
+EFI_DEVICE_PATH_PROTOCOL *EFIAPI FileDevicePath (EFI_HANDLE Handle, CONST CHAR16 *Name) { assert (0); return NULL; }
 CHAR16 *EFIAPI ConvertDevicePathToText (CONST EFI_DEVICE_PATH_PROTOCOL *P, BOOLEAN Display, BOOLEAN Shortcuts) { assert (0); return NULL; }
 UINT64 EFIAPI DivU64x32Remainder (UINT64 Value, UINT32 Divisor, UINT32 *Remainder)
 {

@@ -206,6 +206,8 @@ DrawMenu (UINTN Selected)
   ScreenWrite (Selected == 1 ? "> 2. PARTITIONS FROM PARTITION.TXT\r\n" : "  2. PARTITIONS FROM PARTITION.TXT\r\n");
   ScreenWrite (Selected == 2 ? "> 3. GPT (PRIMARY + BACKUP)\r\n" : "  3. GPT (PRIMARY + BACKUP)\r\n");
   ScreenWrite (Selected == 3 ? "> 4. EXIT\r\n" : "  4. EXIT\r\n");
+  ScreenWrite (Selected == 4 ? "> 5. DISABLE SECURE BOOT\r\n" : "  5. DISABLE SECURE BOOT\r\n");
+  ScreenWrite (Selected == 5 ? "> 6. MASSSTORAGE\r\n" : "  6. MASSSTORAGE\r\n");
   ScreenWrite ("\r\nVOLUME UP: UP\r\nVOLUME DOWN: DOWN\r\nPOWER: SELECT\r\n\r\nRelease each button after pressing.\r\n");
 }
 
@@ -286,7 +288,7 @@ ChooseDumpMode (EFI_FILE_PROTOCOL *Root, UINTN *Mode)
       if (Selected > 0) { Selected--; }
       DrawMenu (Selected);
     } else if (SameKey (&Key, &Map.Key[1])) {
-      if (Selected < 3) { Selected++; }
+      if (Selected < 5) { Selected++; }
       DrawMenu (Selected);
     } else {
       AsciiSPrint (Text, sizeof (Text), "Unmapped key scan=%04x unicode=%04x\r\n",

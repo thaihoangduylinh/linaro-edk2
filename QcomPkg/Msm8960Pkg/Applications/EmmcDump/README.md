@@ -45,12 +45,37 @@ Module không được thêm vào FDF. File `.efi` được sinh riêng; các l�
 
 ## Menu và nút điện thoại (phiên bản 1.3)
 
-Menu có bốn lựa chọn:
+Menu có sáu lựa chọn:
 
 1. **FULL DUMP (1 GIB PARTS)**: toàn bộ eMMC User, chia file như trước.
 2. **PARTITIONS FROM PARTITION.TXT**: chỉ các phân vùng GPT được chỉ định.
 3. **GPT (PRIMARY + BACKUP)**: MBR và GPT chính ở đầu eMMC User, cùng GPT dự phòng ở cuối.
 4. **EXIT**: thoát ứng dụng và trả quyền điều khiển về loader bằng `EFI_SUCCESS`.
+5. **DISABLE SECURE BOOT**: chạy `\SecurityToggleApp.efi` với tham số `/SecureBootDisable`.
+6. **MASSSTORAGE**: chạy `\Cmd.efi` với tham số `MassStorage`.
+
+Copy `C:\Users\thaih\Desktop\SecurityToggleApp.efi` vào gốc USB với đúng tên
+`SecurityToggleApp.efi`. Chọn mục 5 bằng Power để nạp qua `LoadImage` và chạy bằng
+`StartImage`. Trước khi chạy, EmmcDump gán chuỗi UTF-16 `/SecureBootDisable` vào
+`EFI_LOADED_IMAGE_PROTOCOL.LoadOptions`, với `LoadOptionsSize` là số byte gồm
+ký tự kết thúc NUL. Ứng dụng ngoài phụ trách menu và xác nhận thay đổi Secure Boot;
+theo mã giả được cung cấp, thao tác Disable yêu cầu Volume Up để xác nhận.
+EmmcDump không tự chọn hay xác nhận thay người dùng trong ứng dụng này.
+
+Nếu ứng dụng trả về, EmmcDump khởi tạo lại màn hình và quay về menu sau 5 giây.
+Nếu ứng dụng khởi động lại máy thì phiên EmmcDump kết thúc. Mã trả về Success
+chỉ là kết quả chạy ứng dụng, không chứng minh Secure Boot đã tắt (hủy thao tác
+cũng có thể trả Success). Giao diện của ứng dụng ngoài dùng phần hiển thị riêng;
+GOP renderer của EmmcDump không tự làm cho console của ứng dụng đó hiện trên màn hình.
+Firmware vẫn có thể từ chối nạp file với Security Violation hoặc Unsupported;
+khi đó EmmcDump hiện mã lỗi và quay về menu. Chức năng này chưa được chạy thử.
+
+Với mục 6, copy `Cmd.efi` vào gốc USB đang dùng. EmmcDump truyền đúng chuỗi UTF-16
+`MassStorage` qua `LoadOptions`, bao gồm NUL trong số byte `LoadOptionsSize`.
+Hai tham số trên không kèm tên executable hoặc dấu ngoặc kép. Cả hai ứng dụng
+được nạp từ USB; đường dẫn cấu hình `fv1:` không được dùng trong launcher này.
+Cmd.efi tự xử lý chế độ MassStorage và cách thoát. EmmcDump chờ đến khi Cmd.efi
+trả quyền điều khiển, sau đó khôi phục màn hình và quay lại menu sau 5 giây.
 
 Sau mỗi lượt dump thành công, hủy hoặc báo lỗi, ứng dụng hiển thị kết quả trong
 5 giây rồi quay về menu chờ lệnh. Mỗi lượt tạo thư mục mới và mở lại thiết bị USB.

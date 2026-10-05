@@ -1,8 +1,10 @@
 /** @file
   Dump the raw internal disk exposed by Block I/O to a USB filesystem.
 
-  Source access is exclusively ReadBlocks. No source writes, partition changes,
-  resets or vendor commands are issued. Device discovery is deliberately strict:
+  Dump operations access the source exclusively through ReadBlocks.
+  The separate Security Toggle menu launches a user-supplied USB application
+  which can change security variables or reset the device.
+  Device discovery is deliberately strict:
   a unique known eMMC User device path is preferred over boot-area handles.
   Otherwise a unique non-removable, non-partition, non-USB candidate is required.
 **/
@@ -715,6 +717,83 @@ Exit:
   return Status;
 }
 
+STATIC EFI_STATUS
+LaunchUsbApp (EFI_HANDLE ImageHandle, CONST CHAR16 *FileName,
+              CONST CHAR16 *Arguments, UINT32 ArgumentsSize)
+{
+  EFI_HANDLE Destination;
+  EFI_HANDLE Child;
+  EFI_FILE_PROTOCOL *Root;
+  EFI_DEVICE_PATH_PROTOCOL *Path;
+  EFI_LOADED_IMAGE_PROTOCOL *Loaded;
+  EFI_STATUS Status;
+  EFI_STATUS WatchdogStatus;
+  UINTN ExitDataSize;
+  CHAR16 *ExitData;
+  VOID *Options;
+
+  Root = NULL;
+  Child = NULL;
+  Status = FindDestination (ImageHandle, &Destination, &Root);
+  if (EFI_ERROR (Status)) {
+    Log ("Cannot find USB for %s: %r\r\n", FileName, Status);
+    return Status;
+  }
+  Root->Close (Root);
+  Path = FileDevicePath (Destination, FileName);
+  if (Path == NULL) { return EFI_OUT_OF_RESOURCES; }
+  Log ("Loading USB:%s args=%s\r\n", FileName, Arguments);
+  Status = gBS->LoadImage (FALSE, ImageHandle, Path, NULL, 0, &Child);
+  FreePool (Path);
+  if (EFI_ERROR (Status)) {
+    // LoadImage can return a handle even when authentication rejects the image.
+    if (Child != NULL) { gBS->UnloadImage (Child); }
+    Log ("LoadImage failed: %r\r\n", Status);
+    Log ("Place %s in the USB root.\r\n"
+         "The firmware must allow this ARM EFI application to run.\r\n", FileName);
+    return Status;
+  }
+  Status = gBS->HandleProtocol (Child, &gEfiLoadedImageProtocolGuid, (VOID **)&Loaded);
+  if (EFI_ERROR (Status) || Loaded->ImageCodeType != EfiLoaderCode) {
+    gBS->UnloadImage (Child);
+    Log ("%s must be a UEFI application.\r\n", FileName);
+    return EFI_UNSUPPORTED;
+  }
+  Options = AllocateZeroPool (ArgumentsSize);
+  if (Options == NULL) {
+    gBS->UnloadImage (Child);
+    Log ("Cannot allocate application arguments.\r\n");
+    return EFI_OUT_OF_RESOURCES;
+  }
+  // Pass exactly the Arg string as UTF-16, including its terminating NUL.
+  // LoadOptionsSize is a byte count; no executable name or shell quotes.
+  CopyMem (Options, Arguments, ArgumentsSize);
+  Loaded->LoadOptions = Options;
+  Loaded->LoadOptionsSize = ArgumentsSize;
+  Log ("%s controls the next screen and operation.\r\n", FileName);
+  gBS->Stall (2000000);
+  ExitData = NULL;
+  ExitDataSize = 0;
+  ScreenRelease ();
+  Status = gBS->StartImage (Child, &ExitDataSize, &ExitData);
+  // An application that exits is unloaded by firmware. If StartImage was
+  // rejected before entry, its LoadedImage handle can still be present.
+  if (!EFI_ERROR (gBS->HandleProtocol (Child, &gEfiLoadedImageProtocolGuid, (VOID **)&Loaded))) {
+    Loaded->LoadOptions = NULL;
+    Loaded->LoadOptionsSize = 0;
+    gBS->UnloadImage (Child);
+  }
+  FreePool (Options);
+  if (ExitData != NULL) { FreePool (ExitData); }
+  ScreenInit ();
+  WatchdogStatus = gBS->SetWatchdogTimer (0, 0, 0, NULL);
+  if (EFI_ERROR (WatchdogStatus)) {
+    Log ("Cannot disable watchdog after child application: %r\r\n", WatchdogStatus);
+  }
+  Log ("%s returned: %r\r\n", FileName, Status);
+  return Status;
+}
+
 EFI_STATUS EFIAPI
 UefiMain (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
 {
@@ -741,7 +820,15 @@ UefiMain (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
       return EFI_SUCCESS;
     }
     // Reopen the USB and source each time; a failed job must not end the menu.
-    RunDump (ImageHandle, Mode);
+    if (Mode == 4) {
+      LaunchUsbApp (ImageHandle, L"\\SecurityToggleApp.efi",
+                    L"/SecureBootDisable", sizeof (L"/SecureBootDisable"));
+      Log ("Return status alone does not confirm Secure Boot was disabled.\r\n");
+    } else if (Mode == 5) {
+      LaunchUsbApp (ImageHandle, L"\\Cmd.efi", L"MassStorage", sizeof (L"MassStorage"));
+    } else {
+      RunDump (ImageHandle, Mode);
+    }
     ScreenWrite ("\r\nReturning to menu in 5 seconds...\r\n");
     gBS->Stall (5000000);
   }
