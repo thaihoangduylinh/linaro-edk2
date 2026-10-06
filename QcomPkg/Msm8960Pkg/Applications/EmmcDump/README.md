@@ -45,15 +45,16 @@ Module không được thêm vào FDF. File `.efi` được sinh riêng; các l�
 
 ## Menu và nút điện thoại (phiên bản 1.3)
 
-Menu có bảy lựa chọn:
+Menu có tám lựa chọn:
 
 1. **FULL DUMP (1 GIB PARTS)**: toàn bộ eMMC User, chia file như trước.
 2. **DUMP PARTITION (GPT MENU)**: đọc GPT và chọn một phân vùng để dump.
 3. **GPT (PRIMARY + BACKUP)**: MBR và GPT chính ở đầu eMMC User, cùng GPT dự phòng ở cuối.
 4. **DISABLE SECURE BOOT**: chạy `\SecurityToggleApp.efi` với tham số `/SecureBootDisable`.
 5. **MASSSTORAGE**: chạy `\Cmd.efi` với tham số `MassStorage`.
-6. **SHUT DOWN**: yêu cầu firmware tắt máy qua `ResetSystem(EfiResetShutdown)`.
-7. **EXIT**: thoát ứng dụng và trả quyền điều khiển về loader bằng `EFI_SUCCESS`.
+6. **DIAG**: nạp và chạy `\DIAG.efi` từ gốc USB, không truyền tham số.
+7. **SHUT DOWN**: yêu cầu firmware tắt máy qua `ResetSystem(EfiResetShutdown)`.
+8. **EXIT**: thoát ứng dụng và trả quyền điều khiển về loader bằng `EFI_SUCCESS`.
 
 Chọn SHUT DOWN bằng Power để tắt máy. Nếu firmware thiếu dịch vụ hoặc lời gọi
 trả về mà không tắt máy, ứng dụng hiện thông báo rồi quay về menu sau 5 giây.
@@ -82,6 +83,11 @@ Hai tham số trên không kèm tên executable hoặc dấu ngoặc kép. Cả 
 được nạp từ USB; đường dẫn cấu hình `fv1:` không được dùng trong launcher này.
 Cmd.efi tự xử lý chế độ MassStorage và cách thoát. EmmcDump chờ đến khi Cmd.efi
 trả quyền điều khiển, sau đó khôi phục màn hình và quay lại menu sau 5 giây.
+
+Với mục 6, copy `DIAG.efi` vào gốc USB đang dùng, rồi chọn **DIAG** bằng Power.
+EmmcDump gọi `LoadImage` và `StartImage` với `LoadOptions = NULL`,
+`LoadOptionsSize = 0`. Nếu file không nạp được hoặc ứng dụng trả về, EmmcDump
+hiển thị kết quả và quay lại menu sau 5 giây. Chức năng này chưa chạy thử trên thiết bị.
 
 Sau mỗi lượt dump thành công, hủy hoặc báo lỗi, ứng dụng hiển thị kết quả trong
 5 giây rồi quay về menu chờ lệnh. Mỗi lượt tạo thư mục mới và mở lại thiết bị USB.

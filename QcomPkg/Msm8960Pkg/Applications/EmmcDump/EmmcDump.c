@@ -786,6 +786,7 @@ LaunchUsbApp (EFI_HANDLE ImageHandle, CONST CHAR16 *FileName,
   CHAR16 *ExitData;
   VOID *Options;
 
+  if (ArgumentsSize != 0 && Arguments == NULL) { return EFI_INVALID_PARAMETER; }
   Root = NULL;
   Child = NULL;
   Status = FindDestination (ImageHandle, &Destination, &Root);
@@ -796,7 +797,7 @@ LaunchUsbApp (EFI_HANDLE ImageHandle, CONST CHAR16 *FileName,
   Root->Close (Root);
   Path = FileDevicePath (Destination, FileName);
   if (Path == NULL) { return EFI_OUT_OF_RESOURCES; }
-  Log ("Loading USB:%s args=%s\r\n", FileName, Arguments);
+  Log ("Loading USB:%s args=%s\r\n", FileName, ArgumentsSize != 0 ? Arguments : L"(none)");
   Status = gBS->LoadImage (FALSE, ImageHandle, Path, NULL, 0, &Child);
   FreePool (Path);
   if (EFI_ERROR (Status)) {
@@ -813,15 +814,18 @@ LaunchUsbApp (EFI_HANDLE ImageHandle, CONST CHAR16 *FileName,
     Log ("%s must be a UEFI application.\r\n", FileName);
     return EFI_UNSUPPORTED;
   }
-  Options = AllocateZeroPool (ArgumentsSize);
-  if (Options == NULL) {
-    gBS->UnloadImage (Child);
-    Log ("Cannot allocate application arguments.\r\n");
-    return EFI_OUT_OF_RESOURCES;
+  Options = NULL;
+  if (ArgumentsSize != 0) {
+    Options = AllocateZeroPool (ArgumentsSize);
+    if (Options == NULL) {
+      gBS->UnloadImage (Child);
+      Log ("Cannot allocate application arguments.\r\n");
+      return EFI_OUT_OF_RESOURCES;
+    }
+    // Pass exactly the Arg string as UTF-16, including its terminating NUL.
+    // LoadOptionsSize is a byte count; no executable name or shell quotes.
+    CopyMem (Options, Arguments, ArgumentsSize);
   }
-  // Pass exactly the Arg string as UTF-16, including its terminating NUL.
-  // LoadOptionsSize is a byte count; no executable name or shell quotes.
-  CopyMem (Options, Arguments, ArgumentsSize);
   Loaded->LoadOptions = Options;
   Loaded->LoadOptionsSize = ArgumentsSize;
   Log ("%s controls the next screen and operation.\r\n", FileName);
@@ -837,7 +841,7 @@ LaunchUsbApp (EFI_HANDLE ImageHandle, CONST CHAR16 *FileName,
     Loaded->LoadOptionsSize = 0;
     gBS->UnloadImage (Child);
   }
-  FreePool (Options);
+  if (Options != NULL) { FreePool (Options); }
   if (ExitData != NULL) { FreePool (ExitData); }
   ScreenInit ();
   WatchdogStatus = gBS->SetWatchdogTimer (0, 0, 0, NULL);
@@ -893,6 +897,8 @@ UefiMain (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
       Log ("Return status alone does not confirm Secure Boot was disabled.\r\n");
     } else if (Mode == MENU_MASS_STORAGE) {
       LaunchUsbApp (ImageHandle, L"\\Cmd.efi", L"MassStorage", sizeof (L"MassStorage"));
+    } else if (Mode == MENU_DIAG) {
+      LaunchUsbApp (ImageHandle, L"\\DIAG.efi", NULL, 0);
     } else {
       RunDump (ImageHandle, Mode, NULL, 0, NULL);
     }
