@@ -2,6 +2,7 @@
   Dump the raw internal disk exposed by Block I/O to a USB filesystem.
 
   Dump operations access the source exclusively through ReadBlocks.
+  The separate S-OFF action writes validated patches after USB backups verify.
   The separate Security Toggle menu launches a user-supplied USB application
   which can change security variables or reset the device.
   Device discovery is deliberately strict:
@@ -24,6 +25,7 @@
 #include "Screen.h"
 #include "Input.h"
 #include "Partitions.h"
+#include "SOff.h"
 
 #define DUMP_BUFFER_SIZE  (4U * 1024U * 1024U)
 #define DUMP_PART_SIZE    (1024U * 1024U * 1024U)
@@ -852,6 +854,34 @@ LaunchUsbApp (EFI_HANDLE ImageHandle, CONST CHAR16 *FileName,
   return Status;
 }
 
+STATIC EFI_STATUS
+SOffMenu (EFI_HANDLE ImageHandle, BOOLEAN NvOnly)
+{
+  EFI_STATUS Status;
+  EFI_HANDLE Destination, SourceHandle;
+  EFI_BLOCK_IO_PROTOCOL *Source;
+  EFI_FILE_PROTOCOL *Root, *Directory;
+
+  Root = NULL; Directory = NULL; mLog = NULL;
+  Status = FindDestination (ImageHandle, &Destination, &Root);
+  if (EFI_ERROR (Status)) { goto Done; }
+  Status = FindSource (Destination, &Source, &SourceHandle);
+  if (EFI_ERROR (Status)) { goto Done; }
+  Status = NewDirectory (Root, &Directory);
+  if (EFI_ERROR (Status)) { goto Done; }
+  Status = Directory->Open (Directory, &mLog, NvOnly ? L"secureboot-manifest.txt" : L"soff-manifest.txt", FILE_CREATE, 0);
+  if (EFI_ERROR (Status)) { goto Done; }
+  Status = Log ("S-OFF backup format=1; experimental HTC PGFS/E42T profile; M8 excluded.\r\n");
+  if (!EFI_ERROR (Status)) { Status = LogPath ("source_path", DevicePathFromHandle (SourceHandle)); }
+  if (!EFI_ERROR (Status)) { Status = NvOnly ? RunDisableSecureBoot (Source, Directory, Log) : RunSOff (Source, Directory, Log); }
+Done:
+  Log ("S-OFF returned: %r\r\n", Status);
+  if (mLog != NULL) { mLog->Close (mLog); mLog = NULL; }
+  if (Directory != NULL) { Directory->Close (Directory); }
+  if (Root != NULL) { Root->Close (Root); }
+  return Status;
+}
+
 EFI_STATUS EFIAPI
 UefiMain (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
 {
@@ -892,11 +922,11 @@ UefiMain (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
       PartitionMenu (ImageHandle);
       continue;
     } else if (Mode == MENU_SECURITY) {
-      LaunchUsbApp (ImageHandle, L"\\SecurityToggleApp.efi",
-                    L"/SecureBootDisable", sizeof (L"/SecureBootDisable"));
-      Log ("Return status alone does not confirm Secure Boot was disabled.\r\n");
+      SOffMenu (ImageHandle, TRUE);
     } else if (Mode == MENU_MASS_STORAGE) {
       LaunchUsbApp (ImageHandle, L"\\Cmd.efi", L"MassStorage", sizeof (L"MassStorage"));
+    } else if (Mode == MENU_SOFF) {
+      SOffMenu (ImageHandle, FALSE);
     } else if (Mode == MENU_DIAG) {
       LaunchUsbApp (ImageHandle, L"\\DIAG.efi", NULL, 0);
     } else {

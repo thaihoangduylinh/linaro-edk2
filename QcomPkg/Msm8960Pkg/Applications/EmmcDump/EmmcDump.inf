@@ -18,6 +18,8 @@
   Partitions.c
   Partitions.h
   Gpt.c
+  SOff.c
+  SOff.h
 
 [Packages]
   MdePkg/MdePkg.dec

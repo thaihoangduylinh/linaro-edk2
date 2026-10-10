@@ -50,36 +50,29 @@ Menu có tám lựa chọn:
 1. **FULL DUMP (1 GIB PARTS)**: toàn bộ eMMC User, chia file như trước.
 2. **DUMP PARTITION (GPT MENU)**: đọc GPT và chọn một phân vùng để dump.
 3. **GPT (PRIMARY + BACKUP)**: MBR và GPT chính ở đầu eMMC User, cùng GPT dự phòng ở cuối.
-4. **DISABLE SECURE BOOT**: chạy `\SecurityToggleApp.efi` với tham số `/SecureBootDisable`.
+4. **DISABLE SECURE BOOT**: backup UEFI_BS_NV và sửa trực tiếp SecureBoot=0.
 5. **MASSSTORAGE**: chạy `\Cmd.efi` với tham số `MassStorage`.
 6. **DIAG**: nạp và chạy `\DIAG.efi` từ gốc USB, không truyền tham số.
-7. **SHUT DOWN**: yêu cầu firmware tắt máy qua `ResetSystem(EfiResetShutdown)`.
-8. **EXIT**: thoát ứng dụng và trả quyền điều khiển về loader bằng `EFI_SUCCESS`.
+7. **S-OFF**: backup va sua security/CID/PID/NV theo profile HTC da doi chieu.
+8. **SHUT DOWN**: yêu cầu firmware tắt máy qua `ResetSystem(EfiResetShutdown)`.
+9. **EXIT**: thoát ứng dụng và trả quyền điều khiển về loader bằng `EFI_SUCCESS`.
 
 Chọn SHUT DOWN bằng Power để tắt máy. Nếu firmware thiếu dịch vụ hoặc lời gọi
 trả về mà không tắt máy, ứng dụng hiện thông báo rồi quay về menu sau 5 giây.
 
 Quy tắc giao diện: **EXIT luôn ở cuối menu chính**, **BACK luôn ở cuối menu con**.
 
-Copy `C:\Users\thaih\Desktop\SecurityToggleApp.efi` vào gốc USB với đúng tên
-`SecurityToggleApp.efi`. Chọn mục 4 bằng Power để nạp qua `LoadImage` và chạy bằng
-`StartImage`. Trước khi chạy, EmmcDump gán chuỗi UTF-16 `/SecureBootDisable` vào
-`EFI_LOADED_IMAGE_PROTOCOL.LoadOptions`, với `LoadOptionsSize` là số byte gồm
-ký tự kết thúc NUL. Ứng dụng ngoài phụ trách menu và xác nhận thay đổi Secure Boot;
-theo mã giả được cung cấp, thao tác Disable yêu cầu Volume Up để xác nhận.
-EmmcDump không tự chọn hay xác nhận thay người dùng trong ứng dụng này.
-
-Nếu ứng dụng trả về, EmmcDump khởi tạo lại màn hình và quay về menu sau 5 giây.
-Nếu ứng dụng khởi động lại máy thì phiên EmmcDump kết thúc. Mã trả về Success
-chỉ là kết quả chạy ứng dụng, không chứng minh Secure Boot đã tắt (hủy thao tác
-cũng có thể trả Success). Giao diện của ứng dụng ngoài dùng phần hiển thị riêng;
-GOP renderer của EmmcDump không tự làm cho console của ứng dụng đó hiện trên màn hình.
-Firmware vẫn có thể từ chối nạp file với Security Violation hoặc Unsupported;
-khi đó EmmcDump hiện mã lỗi và quay về menu. Chức năng này chưa được chạy thử.
+Mục 4 backup toàn bộ `UEFI_BS_NV` vào `UEFI_BS_NV.original.img` trong thư mục
+`EmmcDump-NNNN`, flush và mở lại đối chiếu từng byte trước khi ghi. Log nằm ở
+`secureboot-manifest.txt` và hiện trên màn hình. Chỉ phân vùng NV được sửa;
+security PGFS, CID và PID chỉ thuộc mục S-OFF. Hai bản sao NV được cập nhật,
+CRC bảng cấp phát được tính lại, sau ghi có flush và đọc lại kiểm tra.
+Ứng dụng quay về menu sau 5 giây. Profile NV không hỗ trợ sẽ bị từ chối.
+Hiệu lực Secure Boot cần kiểm tra sau reboot; firmware có thể cache NV.
 
 Với mục 5, copy `Cmd.efi` vào gốc USB đang dùng. EmmcDump truyền đúng chuỗi UTF-16
 `MassStorage` qua `LoadOptions`, bao gồm NUL trong số byte `LoadOptionsSize`.
-Hai tham số trên không kèm tên executable hoặc dấu ngoặc kép. Cả hai ứng dụng
+Tham số không kèm tên executable hoặc dấu ngoặc kép. Ứng dụng
 được nạp từ USB; đường dẫn cấu hình `fv1:` không được dùng trong launcher này.
 Cmd.efi tự xử lý chế độ MassStorage và cách thoát. EmmcDump chờ đến khi Cmd.efi
 trả quyền điều khiển, sau đó khôi phục màn hình và quay lại menu sau 5 giây.
@@ -199,7 +192,7 @@ không thể tự bổ sung các giao thức còn thiếu.
 ## Nội dung dump và xử lý lỗi
 
 - Dung lượng = `(LastBlock + 1) * BlockSize`, tính bằng 64 bit có kiểm tra tràn.
-- Chỉ gọi `ReadBlocks` trên nguồn. Không gọi `WriteBlocks`, format, reset ổ đĩa
+- Các chức năng dump chỉ gọi `ReadBlocks` trên nguồn. Mục S-OFF riêng gọi `WriteBlocks`; các chức năng dump không format, reset ổ đĩa
   hoặc lệnh thay đổi phân vùng eMMC.
 - Buffer mặc định 4 MiB, căn chỉnh theo `IoAlign`, giảm kích thước nếu thiếu RAM.
 - Mỗi file tối đa 1 GiB, làm tròn xuống theo sector; phù hợp giới hạn file FAT32.
@@ -285,3 +278,55 @@ py -3 -m unittest discover -s QcomPkg\Msm8960Pkg\Applications\EmmcDump -v
 Host checks dùng chính BasePrintLib trong repo để kiểm tra số 64-bit, tên file,
 CRC32, nhận diện GUID User/Boot và mô phỏng GOP Blt để kiểm tra chữ, cuộn và
 fallback. Chúng không kiểm chứng driver hiển thị hay eMMC trên điện thoại thật.
+
+
+## S-OFF (experimental, 2026-10-10)
+
+Option 7 performs four on-disk patches: PGFS security word -> 0 with a rebuilt
+PGFS CRC; board_info CID at +0x14 -> eight ASCII `1` characters; first UTF-16LE
+MFG product ID -> keep four characters and replace the final five with `*`
+(example PM2310000 -> PM23*****); E42T NV -> add SecureBoot=0 under the global
+variable GUID in both store copies, retaining existing HTC variables.
+
+This implements the requested disk changes, not a guarantee that the bootloader
+or TrustZone will accept them after reboot. In particular the four-byte zero
+SecureBoot record follows the WPinternals resource, not an assumption about a
+standard one-byte GetVariable result. Firmware can cache/rewrite NV. Do not run
+variable-changing applications after this operation in the same session.
+
+The writer accepts only the inspected PGFS single extent (security has four
+contiguous 1024-byte blocks starting at data block zero), a signed HTC board_info
+header, a nine-character UTF-16LE P? product ID, and the 256-KiB E42T layout with
+56-block stores used by the supplied HTC 8X and WPinternals files. Unknown layouts
+are rejected before writes. Presence of pg1fs alone does not enable writes. 8S/8XT
+may work when their structures pass these checks; no device testing was performed.
+M8 is excluded. A pre-existing global-variable table without SecureBoot is currently
+rejected rather than expanded; multi-extent PGFS is also unsupported.
+
+Before any eMMC writes, all four patches are prepared in memory, both GPT copies
+are validated, overlapping partitions are rejected, and full original images are
+saved in a fresh EmmcDump-NNNN directory:
+
+- pg1fs.original.img
+- board_info.original.img
+- MFG.original.img
+- UEFI_BS_NV.original.img
+- soff-manifest.txt (partition LBAs, sizes, original CRC32 and status)
+
+Each backup is flushed, closed, reopened and compared byte-for-byte with the
+source snapshot. All source bytes are reread before writing; changed sectors are
+checked again immediately before writing. Only changed 512-byte sectors are
+written, followed by FlushBlocks and full partition read-back comparison. GPT is
+not modified. Backups are made even for already-patched partitions.
+
+If allocation/format/space/backup validation fails, there are no eMMC writes. A
+failure after writes begin can leave a partially modified device; there is no
+atomic transaction across these four partitions and no automatic rollback. Keep
+all backups and the manifest. The normal dump verifier is not the verifier for
+these standalone .original.img backups.
+
+The implementation temporarily keeps original and modified images in memory;
+64 MiB per partition and 80 MiB total source data are the limits (up to 160 MiB
+for image pairs). Insufficient firmware memory causes an early failure. USB free
+space must cover all four original images plus 16 MiB. The action returns to the
+main menu, with EXIT last. No build or tests were run at the user's request.
