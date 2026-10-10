@@ -749,15 +749,13 @@ PartitionMenu (EFI_HANDLE ImageHandle)
   Plan = NULL;
   Status = FindDestination (ImageHandle, &Destination, &Root);
   if (EFI_ERROR (Status)) { goto Exit; }
-  Root->Close (Root);
-  Root = NULL;
   Status = FindSource (Destination, &Source, &SourceHandle);
   if (EFI_ERROR (Status)) { goto Exit; }
   Status = LoadPartitionPlan (NULL, Source, &Plan, Log);
   if (EFI_ERROR (Status)) { goto Exit; }
   Selected = 0;
   for (;;) {
-    Status = ChoosePartition (Plan, &Selected);
+    Status = ChoosePartition (Root, Plan, &Selected);
     if (EFI_ERROR (Status) || Selected == Plan->Count) { break; }
     RunDump (ImageHandle, MENU_PARTITIONS, Plan, Selected, SourceHandle);
     ScreenWrite ("\r\nReturning to partition menu in 5 seconds...\r\n");

@@ -21,7 +21,6 @@ typedef struct {
 STATIC INPUT_SOURCE mInputs[MAX_INPUTS];
 STATIC UINTN mInputCount;
 STATIC KEY_MAP mCachedMap;
-STATIC BOOLEAN mHaveMap;
 
 STATIC BOOLEAN
 SameKey (CONST EFI_INPUT_KEY *A, CONST EFI_INPUT_KEY *B)
@@ -138,42 +137,6 @@ WaitInput (EFI_INPUT_KEY *Key)
   }
 }
 
-STATIC BOOLEAN
-ValidMap (KEY_MAP *Map)
-{
-  UINTN Index;
-  if (Map->Magic != KEY_MAGIC) {
-    return FALSE;
-  }
-  for (Index = 0; Index < 3; Index++) {
-    if (Map->Key[Index].ScanCode == 0 && Map->Key[Index].UnicodeChar == 0) {
-      return FALSE;
-    }
-  }
-  return (BOOLEAN)(!SameKey (&Map->Key[0], &Map->Key[1]) &&
-                   !SameKey (&Map->Key[0], &Map->Key[2]) &&
-                   !SameKey (&Map->Key[1], &Map->Key[2]));
-}
-
-STATIC EFI_STATUS
-LoadMap (EFI_FILE_PROTOCOL *Root, KEY_MAP *Map)
-{
-  EFI_FILE_PROTOCOL *File;
-  EFI_STATUS Status;
-  UINTN Size;
-  Status = Root->Open (Root, &File, L"EmmcDump.keys", EFI_FILE_MODE_READ, 0);
-  if (EFI_ERROR (Status)) {
-    return Status;
-  }
-  Size = sizeof (*Map);
-  Status = File->Read (File, &Size, Map);
-  File->Close (File);
-  if (!EFI_ERROR (Status) && (Size != sizeof (*Map) || !ValidMap (Map))) {
-    Status = EFI_COMPROMISED_DATA;
-  }
-  return Status;
-}
-
 STATIC EFI_STATUS
 SaveMap (EFI_FILE_PROTOCOL *Root, KEY_MAP *Map)
 {
@@ -215,67 +178,69 @@ DrawMenu (UINTN Selected)
   ScreenWrite ("\r\nVOLUME UP: UP\r\nVOLUME DOWN: DOWN\r\nPOWER: SELECT\r\n\r\nRelease each button after pressing.\r\n");
 }
 
-EFI_STATUS
-ChooseDumpMode (EFI_FILE_PROTOCOL *Root, UINTN *Mode)
+STATIC EFI_STATUS
+ConfirmKeys (EFI_FILE_PROTOCOL *Root)
 {
   KEY_MAP Map;
   EFI_INPUT_KEY Key;
   EFI_STATUS Status;
-  UINTN Index;
-  UINTN Previous;
-  UINTN Selected;
+  UINTN Index, Previous;
   CHAR8 Text[128];
   STATIC CONST CHAR8 *Prompt[] = {"VOLUME UP", "VOLUME DOWN", "POWER"};
-
   DiscoverInput ();
   if (mInputCount == 0) {
     ScreenWrite ("No UEFI button/keyboard input protocol.\r\n");
     return EFI_UNSUPPORTED;
   }
   DrainInput ();
-  if (mHaveMap) {
-    Map = mCachedMap;
-    Status = EFI_SUCCESS;
-  } else {
-    if (Root == NULL) { return EFI_NOT_FOUND; }
-    Status = LoadMap (Root, &Map);
-  }
-  if (EFI_ERROR (Status)) {
-    ZeroMem (&Map, sizeof (Map));
-    Map.Magic = KEY_MAGIC;
-    ScreenClear ();
-    ScreenWrite ("FIRST RUN: LEARN THE THREE BUTTONS\r\nTap briefly, then release.\r\n");
-    for (Index = 0; Index < 3; Index++) {
-      AsciiSPrint (Text, sizeof (Text), "\r\nPress %a now.\r\n", Prompt[Index]);
-      ScreenWrite (Text);
-      for (;;) {
-        Status = WaitInput (&Key);
-        if (EFI_ERROR (Status)) {
-          return Status;
-        }
-        for (Previous = 0; Previous < Index; Previous++) {
-          if (SameKey (&Key, &Map.Key[Previous])) {
-            break;
-          }
-        }
-        if (Previous == Index) {
+  ZeroMem (&Map, sizeof (Map));
+  Map.Magic = KEY_MAGIC;
+  ScreenClear ();
+  ScreenWrite ("CONFIRM BUTTONS FOR THIS DEVICE\r\nTap briefly, then release.\r\n");
+  for (Index = 0; Index < 3; Index++) {
+    AsciiSPrint (Text, sizeof (Text), "\r\nPress %a now.\r\n", Prompt[Index]);
+    ScreenWrite (Text);
+    for (;;) {
+      Status = WaitInput (&Key);
+      if (EFI_ERROR (Status)) {
+        return Status;
+      }
+      for (Previous = 0; Previous < Index; Previous++) {
+        if (SameKey (&Key, &Map.Key[Previous])) {
           break;
         }
-        ScreenWrite ("Already assigned. Release and press the requested button.\r\n");
       }
-      Map.Key[Index] = Key;
-      AsciiSPrint (Text, sizeof (Text), "Captured scan=%04x unicode=%04x\r\n",
-                  (UINT32)Key.ScanCode, (UINT32)Key.UnicodeChar);
-      ScreenWrite (Text);
+      if (Previous == Index) {
+        break;
+      }
+      ScreenWrite ("Already assigned. Release and press the requested button.\r\n");
     }
-    Status = SaveMap (Root, &Map);
-    if (EFI_ERROR (Status)) {
-      ScreenWrite ("Cannot save EmmcDump.keys; mapping works for this run.\r\n");
-      gBS->Stall (2000000);
-    }
+    Map.Key[Index] = Key;
+    AsciiSPrint (Text, sizeof (Text), "Captured scan=%04x unicode=%04x\r\n",
+                (UINT32)Key.ScanCode, (UINT32)Key.UnicodeChar);
+    ScreenWrite (Text);
+  }
+  Status = Root == NULL ? EFI_NOT_FOUND : SaveMap (Root, &Map);
+  if (EFI_ERROR (Status)) {
+    ScreenWrite ("Cannot save EmmcDump.keys; mapping works for this run.\r\n");
+    gBS->Stall (2000000);
   }
   mCachedMap = Map;
-  mHaveMap = TRUE;
+  DrainInput ();
+  return EFI_SUCCESS;
+}
+
+EFI_STATUS
+ChooseDumpMode (EFI_FILE_PROTOCOL *Root, UINTN *Mode)
+{
+  KEY_MAP Map;
+  EFI_INPUT_KEY Key;
+  EFI_STATUS Status;
+  UINTN Selected;
+  CHAR8 Text[128];
+  Status = ConfirmKeys (Root);
+  if (EFI_ERROR (Status)) { return Status; }
+  Map = mCachedMap;
   Selected = 0;
   DrawMenu (Selected);
   for (;;) {
@@ -303,7 +268,7 @@ ChooseDumpMode (EFI_FILE_PROTOCOL *Root, UINTN *Mode)
 }
 
 EFI_STATUS
-ChoosePartition (CONST PARTITION_PLAN *Plan, UINTN *Selected)
+ChoosePartition (EFI_FILE_PROTOCOL *Root, CONST PARTITION_PLAN *Plan, UINTN *Selected)
 {
   EFI_INPUT_KEY Key;
   EFI_STATUS Status;
@@ -311,7 +276,8 @@ ChoosePartition (CONST PARTITION_PLAN *Plan, UINTN *Selected)
   UINTN Index;
   CHAR8 Text[192];
 
-  if (!mHaveMap) { return EFI_NOT_READY; }
+  Status = ConfirmKeys (Root);
+  if (EFI_ERROR (Status)) { return Status; }
   if (*Selected > Plan->Count) { *Selected = 0; }
   DiscoverInput ();
   if (mInputCount == 0) { return EFI_UNSUPPORTED; }

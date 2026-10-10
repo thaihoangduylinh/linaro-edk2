@@ -330,3 +330,5 @@ The implementation temporarily keeps original and modified images in memory;
 for image pairs). Insufficient firmware memory causes an early failure. USB free
 space must cover all four original images plus 16 MiB. The action returns to the
 main menu, with EXIT last. No build or tests were run at the user's request.
+
+Mỗi lần vào menu chính hoặc menu partition (kể cả quay lại sau dump), ứng dụng yêu cầu bấm lại Volume Up, Volume Down, Power và ghi đè EmmcDump.keys. File cũ không được dùng để bỏ qua bước xác nhận. Nếu lưu thất bại, mã phím vừa học vẫn dùng cho menu hiện tại.
