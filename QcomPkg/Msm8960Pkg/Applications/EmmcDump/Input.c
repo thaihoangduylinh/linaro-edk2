@@ -21,6 +21,13 @@ typedef struct {
 STATIC INPUT_SOURCE mInputs[MAX_INPUTS];
 STATIC UINTN mInputCount;
 STATIC KEY_MAP mCachedMap;
+STATIC BOOLEAN mHaveSessionMap = FALSE;
+
+VOID
+ResetKeySession (VOID)
+{
+  mHaveSessionMap = FALSE;
+}
 
 STATIC BOOLEAN
 SameKey (CONST EFI_INPUT_KEY *A, CONST EFI_INPUT_KEY *B)
@@ -193,6 +200,7 @@ ConfirmKeys (EFI_FILE_PROTOCOL *Root)
     return EFI_UNSUPPORTED;
   }
   DrainInput ();
+  if (mHaveSessionMap) { return EFI_SUCCESS; }
   ZeroMem (&Map, sizeof (Map));
   Map.Magic = KEY_MAGIC;
   ScreenClear ();
@@ -226,6 +234,7 @@ ConfirmKeys (EFI_FILE_PROTOCOL *Root)
     gBS->Stall (2000000);
   }
   mCachedMap = Map;
+  mHaveSessionMap = TRUE;
   DrainInput ();
   return EFI_SUCCESS;
 }

@@ -205,3 +205,5 @@ int main (void)
   puts ("PASS: real legacy PrintLib numbers/names, CRC32, User/Boot paths, GOP drawing/scroll/fallback");
   return 0;
 }
+
+VOID ResetKeySession (VOID) { }

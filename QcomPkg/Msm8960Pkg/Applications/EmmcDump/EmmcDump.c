@@ -889,6 +889,7 @@ UefiMain (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
   UINTN Mode;
 
   (VOID)SystemTable;
+  ResetKeySession ();
   Root = NULL;
   ScreenInit ();
   // Disable the watchdog for transfers and indefinite waits at the menu.

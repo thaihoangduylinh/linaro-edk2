@@ -6,4 +6,4 @@
 - The user builds this application themselves. Do not run builds or tests unless
   they ask; source inspection and edits are allowed.
 
-- Always relearn Volume Up, Volume Down and Power on every main/partition menu entry; overwrite EmmcDump.keys instead of trusting a previous device map.
+- Learn Volume Up, Volume Down and Power once per EFI invocation. Reuse the in-memory map across all menus in that session. Each new EFI invocation must learn again, ignoring any old EmmcDump.keys; save the newly learned map to USB.
